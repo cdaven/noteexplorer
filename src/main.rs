@@ -2,7 +2,7 @@ use clap::{crate_version, App, Arg, SubCommand};
 use std::error::Error;
 use std::process;
 
-use noteexplorer::{run, Config, NoteCollection, NoteParser};
+use noteexplorer::{run, Config};
 
 // Anmäl VAB till Försäkringskassan
 // Skriv upp VAB i Fortnox

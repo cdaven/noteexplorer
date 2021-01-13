@@ -1,8 +1,7 @@
-use std::marker::PhantomData;
-use std::error::Error;
 use regex::Regex;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{fs, io, path};
@@ -37,34 +36,33 @@ impl NoteFile {
 }
 
 #[derive(Debug)]
-struct Note<'a> {
+struct Note {
 	file: NoteFile,
 	title: Option<String>,
 	id: Option<String>,
 	links: HashSet<WikiLink>,
 	todos: Vec<String>,
 	parser: Rc<NoteParser>,
-	phantom: &'a str
 }
 
 // Use path as unique identifier for notes
-impl<'a> PartialEq for Note<'a> {
+impl PartialEq for Note {
 	fn eq(&self, other: &Self) -> bool {
 		self.file.path == other.file.path
 	}
 }
 
-impl<'a> Eq for Note<'a> {}
+impl Eq for Note {}
 
 // Use path as unique identifier for notes
-impl<'a> Hash for Note<'a> {
+impl Hash for Note {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		self.file.path.hash(state);
 	}
 }
 
-impl<'a> Note<'a> {
-	fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note<'a> {
+impl Note {
+	fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
 		Note {
 			id: Note::get_id_assoc(&file, &parser),
 			title: Note::get_title_assoc(&file, &parser),
@@ -72,7 +70,6 @@ impl<'a> Note<'a> {
 			todos: Note::get_todos_assoc(&file, &parser),
 			parser,
 			file,
-			phantom: ""
 		}
 	}
 
@@ -116,8 +113,7 @@ impl<'a> Note<'a> {
 	}
 
 	fn get_links_assoc(file: &NoteFile, parser: &NoteParser) -> HashSet<WikiLink> {
-
-		parser.get_wiki_links(&file.content)
+		parser.get_wiki_links(parser.get_content_without_backlinks(&file.content))
 	}
 
 	fn get_todos(&self) -> &Vec<String> {
@@ -126,14 +122,6 @@ impl<'a> Note<'a> {
 
 	fn get_todos_assoc(file: &NoteFile, parser: &NoteParser) -> Vec<String> {
 		parser.get_todos(&file.content)
-	}
-
-	fn get_content_without_backlinks(file: &'a NoteFile, parser: &NoteParser) -> &'a str {
-		file.content.split(&parser.backlinks_heading).nth(0).unwrap_or_default()
-	}
-
-	fn get_backlinks_section(file: &'a NoteFile, parser: &NoteParser) -> &'a str {
-		file.content.split(&parser.backlinks_heading).nth(1).unwrap_or_default()
 	}
 
 	/** Return a copy of the note's meta data */
@@ -149,7 +137,7 @@ impl<'a> Note<'a> {
 }
 
 #[derive(PartialEq, Eq, Hash, Debug)]
-pub struct NoteMeta {
+struct NoteMeta {
 	path: String,
 	stem: String,
 	extension: String,
@@ -158,7 +146,7 @@ pub struct NoteMeta {
 }
 
 impl NoteMeta {
-	pub fn get_wikilink_to(&self) -> String {
+	fn get_wikilink_to(&self) -> String {
 		let empty_str = String::from("");
 		let id = self.id.as_ref().unwrap_or(&self.stem);
 		let mut title = self.title.as_ref().unwrap_or(&empty_str);
@@ -202,18 +190,26 @@ impl Hash for WikiLink {
 }
 
 #[derive(Debug)]
-pub struct NoteParser {
+struct NoteParser {
 	id_pattern: String,
 	id_expr: Regex,
 	wiki_link_expr: Regex,
 	h1_expr: Regex,
 	todo_expr: Regex,
 	backlinks_heading: String,
+	backlink_expr: Regex
 }
 
 impl NoteParser {
-	pub fn new(id_pattern: &str, backlinks_heading: &str) -> NoteParser {
+	fn new(id_pattern: &str, backlinks_heading: &str) -> NoteParser {
 		let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\s)", &id_pattern);
+
+		// Replace whitespace character representations
+		let backlinks_heading = backlinks_heading
+			.to_string()
+			.replace("\\r", "\r")
+			.replace("\\n", "\n")
+			.replace("\\t", "\t");
 
 		/*
 			Regular expressions below use "(?:\r|\n|\z)" instead of "$",
@@ -228,7 +224,8 @@ impl NoteParser {
 			wiki_link_expr: Regex::new(r"\[\[([^\]\[]+?)\]\]").unwrap(),
 			h1_expr: Regex::new(r"(?m)^#\s+(.+?)(?:\r|\n|\z)").unwrap(),
 			todo_expr: Regex::new(r"(?m)^\s*[-*] \[ \]\s*(.+?)(?:\r|\n|\z)").unwrap(),
-			backlinks_heading: backlinks_heading.to_string(),
+			backlinks_heading: backlinks_heading,
+			backlink_expr: Regex::new(r"(?m)^[-*]\s*(.*?)(?:\r|\n|\z)").unwrap(),
 		}
 	}
 
@@ -274,19 +271,40 @@ impl NoteParser {
 		}
 		todos
 	}
+
+	fn get_content_without_backlinks<'a>(&self, text: &'a str) -> &'a str {
+		text.split(&self.backlinks_heading)
+			.nth(0)
+			.unwrap_or_default()
+			.trim()
+	}
+
+	fn get_backlinks_section<'a>(&self, text: &'a str) -> &'a str {
+		text.split(&self.backlinks_heading)
+			.nth(1)
+			.unwrap_or_default()
+			.trim()
+	}
+
+	fn get_backlinks<'a>(&self, text: &'a str) -> Vec<String> {
+		let mut backlinks = Vec::new();
+		for capture in self.backlink_expr.captures_iter(self.get_backlinks_section(text)) {
+			backlinks.push(capture[1].to_string());
+		}
+		backlinks
+	}
 }
 
-pub struct NoteCollection<'a> {
+struct NoteCollection {
 	/** Lookup for IDs and file names to all notes */
-	notes: HashMap<WikiLink, Rc<Note<'a>>>,
+	notes: HashMap<WikiLink, Rc<Note>>,
 	/** List of all notes */
-	notes_iter: Vec<Rc<Note<'a>>>,
-	backlinks: HashMap<WikiLink, Vec<Rc<Note<'a>>>>,
-	phantom: &'a str
+	notes_iter: Vec<Rc<Note>>,
+	backlinks: HashMap<WikiLink, Vec<Rc<Note>>>,
 }
 
-impl<'a> NoteCollection<'a> {
-	pub fn collect_files(root: &str, extension: &str, parser: NoteParser) -> NoteCollection<'a> {
+impl NoteCollection {
+	fn collect_files(root: &str, extension: &str, parser: NoteParser) -> NoteCollection {
 		println!(
 			"Collecting notes from {} with extension {}",
 			root, extension
@@ -330,11 +348,10 @@ impl<'a> NoteCollection<'a> {
 			notes,
 			notes_iter,
 			backlinks,
-			phantom: ""
 		}
 	}
 
-	pub fn count(&self) -> usize {
+	fn count(&self) -> usize {
 		self.notes_iter.len()
 	}
 
@@ -345,7 +362,7 @@ impl<'a> NoteCollection<'a> {
 		}
 	}
 
-	pub fn get_orphans(&self) -> Vec<NoteMeta> {
+	fn get_orphans(&self) -> Vec<NoteMeta> {
 		let mut orphans = Vec::new();
 		let mut f = |note: &Note| {
 			if self
@@ -367,9 +384,11 @@ impl<'a> NoteCollection<'a> {
 		orphans
 	}
 
-	pub fn get_broken_links(&self) {}
+	fn get_broken_links(&self) {
 
-	pub fn get_notes_without_links(&self) -> Vec<NoteMeta> {
+	}
+
+	fn get_notes_without_links(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::new();
 		let mut f = |note: &Note| {
 			if note.get_links().len() == 0 {
@@ -380,7 +399,7 @@ impl<'a> NoteCollection<'a> {
 		notes
 	}
 
-	pub fn get_todos(&self) -> HashMap<NoteMeta, Vec<String>> {
+	fn get_todos(&self) -> HashMap<NoteMeta, Vec<String>> {
 		let mut todos = HashMap::new();
 		let mut f = |note: &Note| {
 			if note.get_todos().len() > 0 {
@@ -391,9 +410,9 @@ impl<'a> NoteCollection<'a> {
 		todos
 	}
 
-	pub fn update_backlinks(&self) {}
+	fn update_backlinks(&self) {}
 
-	pub fn update_filenames(&self) {}
+	fn update_filenames(&self) {}
 }
 
 fn visit_dirs(path: &path::Path, callback: &mut dyn FnMut(&path::PathBuf)) -> io::Result<()> {
@@ -431,7 +450,7 @@ pub struct Config {
 	pub id_pattern: String,
 	pub backlinks_heading: String,
 	pub extension: String,
-	pub path: String
+	pub path: String,
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
@@ -439,7 +458,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 	let notes = NoteCollection::collect_files(&config.path, &config.extension, parser);
 
 	println!("Collected {} notes", notes.count());
-	print_todos(&notes);
+	//print_todos(&notes);
 	print_orphans(&notes);
 
 	Ok(())
@@ -465,13 +484,12 @@ fn print_orphans(notes: &NoteCollection) {
 	}
 }
 
-
 #[cfg(test)]
 mod tests {
 	use crate::*;
 
 	fn get_default_parser() -> NoteParser {
-		NoteParser::new(r"\d{11,14}", r"-----------------\r\n**Links to this note**")
+		NoteParser::new(r"\d{11,14}", "-----------------\\r\\n**Links to this note**")
 	}
 
 	#[test]
@@ -605,11 +623,20 @@ mod tests {
 	}
 
 	#[test]
-	fn string_find() {
-		let s = "Hello, world!";
-		let parts: Vec<&str> = s.split(", ").collect();
+	fn backlinks() {
+		let parser = Rc::new(get_default_parser());
+		let note = Note::new(
+			NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")),
+			Rc::clone(&parser),
+		);
 
-		assert_eq!(parts[0], "Hello");
-		assert_eq!(parts[1], "world!");
+		// All links in this file is in the backlinks section
+		assert_eq!(note.get_links().len(), 0);
+
+		let backlinks = parser.get_backlinks(&note.file.content);
+		assert!(backlinks.contains(&"[[§An outline note]]".to_string()));
+		assert!(backlinks.contains(&"[[20201012145848]] Another note".to_string()));
+		assert!(backlinks.contains(&"Not a link".to_string()));
+		assert_eq!(backlinks.len(), 3);
 	}
 }
