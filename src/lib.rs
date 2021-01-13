@@ -2,6 +2,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{fs, io, path};
@@ -189,6 +190,16 @@ impl Hash for WikiLink {
 	}
 }
 
+impl fmt::Display for WikiLink {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		use WikiLink::*;
+		match self {
+			Id(link) => write!(f, "[[{}]]", link),
+			FileName(link) => write!(f, "[[{}]]", link),
+		}
+	}
+}
+
 #[derive(Debug)]
 struct NoteParser {
 	id_pattern: String,
@@ -197,7 +208,7 @@ struct NoteParser {
 	h1_expr: Regex,
 	todo_expr: Regex,
 	backlinks_heading: String,
-	backlink_expr: Regex
+	backlink_expr: Regex,
 }
 
 impl NoteParser {
@@ -288,7 +299,10 @@ impl NoteParser {
 
 	fn get_backlinks<'a>(&self, text: &'a str) -> Vec<String> {
 		let mut backlinks = Vec::new();
-		for capture in self.backlink_expr.captures_iter(self.get_backlinks_section(text)) {
+		for capture in self
+			.backlink_expr
+			.captures_iter(self.get_backlinks_section(text))
+		{
 			backlinks.push(capture[1].to_string());
 		}
 		backlinks
@@ -384,8 +398,18 @@ impl NoteCollection {
 		orphans
 	}
 
-	fn get_broken_links(&self) {
-
+	fn get_broken_links(&self) -> Vec<(&WikiLink, Vec<NoteMeta>)> {
+		let mut notes = Vec::new();
+		let linked: HashSet<&WikiLink> = self.backlinks.keys().collect();
+		let existing: HashSet<&WikiLink> = self.notes.keys().collect();
+		for broken in linked.difference(&existing) {
+			let linkers: Vec<NoteMeta> = self.backlinks[broken]
+				.iter()
+				.map(|n| n.get_meta())
+				.collect();
+			notes.push((*broken, linkers));
+		}
+		notes
 	}
 
 	fn get_notes_without_links(&self) -> Vec<NoteMeta> {
@@ -459,7 +483,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
 	println!("Collected {} notes", notes.count());
 	//print_todos(&notes);
-	print_orphans(&notes);
+	//print_orphans(&notes);
+	print_broken_links(&notes);
 
 	Ok(())
 }
@@ -484,12 +509,24 @@ fn print_orphans(notes: &NoteCollection) {
 	}
 }
 
+fn print_broken_links(notes: &NoteCollection) {
+	println!("# Broken links\n");
+
+	for (link, notes) in notes.get_broken_links() {
+		let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();
+		println!("- {}, from {}", link, linkers.join(", "));
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use crate::*;
 
 	fn get_default_parser() -> NoteParser {
-		NoteParser::new(r"\d{11,14}", "-----------------\\r\\n**Links to this note**")
+		NoteParser::new(
+			r"\d{11,14}",
+			"-----------------\\r\\n**Links to this note**",
+		)
 	}
 
 	#[test]

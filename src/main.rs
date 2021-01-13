@@ -4,9 +4,6 @@ use std::process;
 
 use noteexplorer::{run, Config};
 
-// Anmäl VAB till Försäkringskassan
-// Skriv upp VAB i Fortnox
-
 fn main() {
 	let matches = App::new("NoteExplorer")
 		.version(crate_version!())
@@ -40,7 +37,7 @@ fn main() {
 		.arg(
 			Arg::with_name("path")
 				.help("Path to the note files directory")
-				.required(true)
+				.default_value(".")
 				.index(1),
 		)
 		// .subcommand(
