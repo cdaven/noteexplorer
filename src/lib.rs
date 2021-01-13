@@ -475,18 +475,27 @@ pub struct Config {
 	pub backlinks_heading: String,
 	pub extension: String,
 	pub path: String,
+	pub command: String,
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 	let parser = NoteParser::new(&config.id_pattern, &config.backlinks_heading);
 	let notes = NoteCollection::collect_files(&config.path, &config.extension, parser);
 
-	println!("Collected {} notes", notes.count());
-	//print_todos(&notes);
-	//print_orphans(&notes);
-	print_broken_links(&notes);
+	match config.command.as_str() {
+		"todos" => print_todos(&notes),
+		"broken-links" => print_broken_links(&notes),
+		"orphans" => print_orphans(&notes),
+		_ => print_stats(&notes),
+	}
 
 	Ok(())
+}
+
+fn print_stats(notes: &NoteCollection) {
+	println!("# Statistics\n");
+
+	println!("- Number of notes: {}", notes.count());
 }
 
 fn print_todos(notes: &NoteCollection) {

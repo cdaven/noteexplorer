@@ -40,19 +40,27 @@ fn main() {
 				.default_value(".")
 				.index(1),
 		)
-		// .subcommand(
-		// 	SubCommand::with_name("test")
-		// )
+		.subcommand(SubCommand::with_name("todos").about("Prints a compiled list of TODOs"))
+		.subcommand(
+			SubCommand::with_name("broken-links").about("Prints a compiled list of broken links"),
+		)
+		.subcommand(
+			SubCommand::with_name("orphans").about("Prints a list of notes with no incoming links"),
+		)
 		.get_matches();
+
+	// TODO: Get list of longest notes
+	// TODO: Get list of shortest notes
+
+	let command = matches.subcommand_name().unwrap_or_default();
 
 	let config = Config {
 		extension: matches.value_of("extension").unwrap().to_string(),
 		id_pattern: matches.value_of("id_format").unwrap().to_string(),
 		backlinks_heading: matches.value_of("backlinks_heading").unwrap().to_string(),
 		path: matches.value_of("path").unwrap().to_string(),
+		command: command.to_string(),
 	};
-
-	println!("{:?}", config);
 
 	run(config);
 }
