@@ -14,3 +14,5 @@ repository = "https://github.com/cdaven/katalorg.git"
 [dependencies]
 regex = "1"
 clap = "~2.33.0"
+ansi_term = "0.12"
+rprompt = "1.0"

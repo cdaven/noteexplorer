@@ -1,3 +1,4 @@
+use ansi_term::{Colour, Style};
 use regex::Regex;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -34,12 +35,32 @@ impl NoteFile {
 			content: fs::read_to_string(&path).expect("Error in read_to_string()"),
 		}
 	}
+
+	fn escape_filename(filename: &str) -> String {
+		// TODO: Make regexes static somehow
+		// These characters are replaced with " " (illegal in Windows)
+		let illegal_chars = Regex::new("[<>:*?/\"\\\\]").unwrap();
+		// "." at the beginning or end are removed
+		let surrounding_stops = Regex::new(r"(^\.|\.$)").unwrap();
+		// Replace double spaces with single
+		let double_spaces = Regex::new(r" +").unwrap();
+
+		double_spaces
+			.replace_all(
+				&surrounding_stops
+					.replace_all(&illegal_chars.replace_all(&filename, " ").to_string(), "")
+					.to_string(),
+				" ",
+			)
+			.trim()
+			.to_string()
+	}
 }
 
 #[derive(Debug)]
 struct Note {
 	file: NoteFile,
-	title: Option<String>,
+	title: String,
 	id: Option<String>,
 	links: HashSet<WikiLink>,
 	todos: Vec<String>,
@@ -74,10 +95,6 @@ impl Note {
 		}
 	}
 
-	fn get_id(&self) -> &Option<String> {
-		&self.id
-	}
-
 	fn get_id_assoc(file: &NoteFile, parser: &NoteParser) -> Option<String> {
 		// First try to get ID from note text
 		if let Some(id) = parser.get_id(&file.content) {
@@ -91,34 +108,18 @@ impl Note {
 		}
 	}
 
-	fn get_file_stem(&self) -> &str {
-		&self.file.stem
-	}
-
-	fn get_title(&self) -> &Option<String> {
-		&self.title
-	}
-
-	fn get_title_assoc(file: &NoteFile, parser: &NoteParser) -> Option<String> {
+	fn get_title_assoc(file: &NoteFile, parser: &NoteParser) -> String {
 		// Try first with a H1 title in the contents
 		if let Some(title) = parser.get_h1(&file.content) {
-			Some(title)
+			title
 		} else {
 			// Then use file stem without ID (even if the wrong ID)
-			Some(parser.remove_id(&file.stem).trim().to_string())
+			parser.remove_id(&file.stem).trim().to_string()
 		}
-	}
-
-	fn get_links(&self) -> &HashSet<WikiLink> {
-		&self.links
 	}
 
 	fn get_links_assoc(file: &NoteFile, parser: &NoteParser) -> HashSet<WikiLink> {
 		parser.get_wiki_links(parser.get_content_without_backlinks(&file.content))
-	}
-
-	fn get_todos(&self) -> &Vec<String> {
-		&self.todos
 	}
 
 	fn get_todos_assoc(file: &NoteFile, parser: &NoteParser) -> Vec<String> {
@@ -142,22 +143,23 @@ struct NoteMeta {
 	path: String,
 	stem: String,
 	extension: String,
-	title: Option<String>,
+	title: String,
 	id: Option<String>,
 }
 
 impl NoteMeta {
 	fn get_wikilink_to(&self) -> String {
-		let empty_str = String::from("");
 		let id = self.id.as_ref().unwrap_or(&self.stem);
-		let mut title = self.title.as_ref().unwrap_or(&empty_str);
+		let title = if &self.title == id {
+			None
+		} else {
+			Some(&self.title)
+		};
 
 		// When the id and title are the same, don't repeat the title
-		if title == id {
-			title = &empty_str;
-		}
-
-		format!("[[{}]] {}", id, title).trim_end().to_string()
+		format!("[[{}]] {}", id, title.unwrap_or(&String::from("")))
+			.trim_end()
+			.to_string()
 	}
 }
 
@@ -211,9 +213,14 @@ struct NoteParser {
 	backlink_expr: Regex,
 }
 
+#[allow(dead_code)]
 impl NoteParser {
-	fn new(id_pattern: &str, backlinks_heading: &str) -> NoteParser {
+	fn new(id_pattern: &str, backlinks_heading: &str) -> Result<NoteParser, &'static str> {
 		let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\s)", &id_pattern);
+		let id_expr = match Regex::new(&id_expr_str) {
+			Ok(expr) => expr,
+			Err(_) => return Err("Cannot parse ID format as regular expression"),
+		};
 
 		// Replace whitespace character representations
 		let backlinks_heading = backlinks_heading
@@ -222,6 +229,18 @@ impl NoteParser {
 			.replace("\\n", "\n")
 			.replace("\\t", "\t");
 
+		let wiki_link_format = "\\[\\[(?x)
+			# Label can occur first, ends with |
+			({:file_name:}+\\|)?
+			(
+				# Filename or ID
+				{:file_name:}+?
+			)
+			# Section can occur last, starts with #
+			((?-x:#){:file_name:}+)?
+			\\]\\]"
+			.replace("{:file_name:}", "[^<>:*?/\\]\\[\"\\\\\\r\\n\\t]");
+
 		/*
 			Regular expressions below use "(?:\r|\n|\z)" instead of "$",
 			since the latter for some reason doesn't match "\r"! This seems
@@ -229,15 +248,15 @@ impl NoteParser {
 			some setting I'm unaware of.
 		*/
 
-		NoteParser {
+		Ok(NoteParser {
 			id_pattern: id_pattern.to_string(),
-			id_expr: Regex::new(&id_expr_str).unwrap(),
-			wiki_link_expr: Regex::new(r"\[\[([^\]\[]+?)\]\]").unwrap(),
+			id_expr,
+			wiki_link_expr: Regex::new(&wiki_link_format).unwrap(),
 			h1_expr: Regex::new(r"(?m)^#\s+(.+?)(?:\r|\n|\z)").unwrap(),
-			todo_expr: Regex::new(r"(?m)^\s*[-*] \[ \]\s*(.+?)(?:\r|\n|\z)").unwrap(),
+			todo_expr: Regex::new(r"(?m)^\s*[-*]\s+\[ \]\s+(.+?)(?:\r|\n|\z)").unwrap(),
 			backlinks_heading: backlinks_heading,
 			backlink_expr: Regex::new(r"(?m)^[-*]\s*(.*?)(?:\r|\n|\z)").unwrap(),
-		}
+		})
 	}
 
 	fn get_id(&self, text: &str) -> Option<String> {
@@ -265,10 +284,13 @@ impl NoteParser {
 	fn get_wiki_links(&self, text: &str) -> HashSet<WikiLink> {
 		let mut links = HashSet::new();
 		for capture in self.wiki_link_expr.captures_iter(&text) {
-			let link = capture[1].to_string();
+			dbg!(&capture);
+			let link = capture[2].to_string();
 			if self.is_id(&link) {
 				links.insert(WikiLink::Id(link));
 			} else {
+				// TODO: Check if filename is valid here (beginning and ending space and dot at least)
+
 				links.insert(WikiLink::FileName(link));
 			}
 		}
@@ -317,12 +339,9 @@ struct NoteCollection {
 	backlinks: HashMap<WikiLink, Vec<Rc<Note>>>,
 }
 
+#[allow(dead_code)]
 impl NoteCollection {
 	fn collect_files(root: &str, extension: &str, parser: NoteParser) -> NoteCollection {
-		println!(
-			"Collecting notes from {} with extension {}",
-			root, extension
-		);
 		let parser = Rc::new(parser);
 		let mut notes = HashMap::new();
 		let mut notes_iter = Vec::new();
@@ -332,22 +351,26 @@ impl NoteCollection {
 			let path_ext = path.extension().unwrap_or_default().to_str().unwrap();
 			if path_ext == extension {
 				let note = Rc::new(Note::new(NoteFile::new(&path), Rc::clone(&parser)));
-				println!(
-					"Parsing note {:?} with id {:?}",
-					note.get_file_stem(),
-					note.id
-				);
-
-				if let Some(id) = note.get_id() {
-					notes.insert(WikiLink::Id(id.clone()), Rc::clone(&note));
+				if let Some(id) = &note.id {
+					if let Some(conflicting_note) =
+						notes.insert(WikiLink::Id(id.clone()), Rc::clone(&note))
+					{
+						eprintln!(
+							"{} The id {} was used in both \"{}\" and \"{}\"",
+							Colour::Yellow.paint("Warning:"),
+							id,
+							note.file.stem,
+							conflicting_note.file.stem
+						);
+					}
 				}
 				notes.insert(
-					WikiLink::FileName(note.get_file_stem().to_string()),
+					WikiLink::FileName(note.file.stem.to_string()),
 					Rc::clone(&note),
 				);
 				notes_iter.push(Rc::clone(&note));
 
-				for link in note.get_links() {
+				for link in &note.links {
 					backlinks
 						.entry(link.clone())
 						.or_insert(Vec::new())
@@ -365,10 +388,6 @@ impl NoteCollection {
 		}
 	}
 
-	fn count(&self) -> usize {
-		self.notes_iter.len()
-	}
-
 	fn visit_notes(&self, callback: &mut dyn FnMut(&Note)) {
 		// TODO: Add sorting callback?
 		for note in &self.notes_iter {
@@ -376,17 +395,36 @@ impl NoteCollection {
 		}
 	}
 
+	fn count(&self) -> usize {
+		self.notes_iter.len()
+	}
+
+	fn count_with_id(&self) -> usize {
+		let mut count: usize = 0;
+		let mut f = |note: &Note| {
+			if let Some(_) = &note.id {
+				count += 1;
+			}
+		};
+		self.visit_notes(&mut f);
+		count
+	}
+
+	fn count_links(&self) -> usize {
+		self.backlinks.len()
+	}
+
 	fn get_orphans(&self) -> Vec<NoteMeta> {
 		let mut orphans = Vec::new();
 		let mut f = |note: &Note| {
 			if self
 				.backlinks
-				.contains_key(&WikiLink::FileName(note.get_file_stem().to_string()))
+				.contains_key(&WikiLink::FileName(note.file.stem.to_string()))
 			{
 				return;
 			}
 
-			if let Some(id) = note.get_id() {
+			if let Some(id) = &note.id {
 				if self.backlinks.contains_key(&WikiLink::Id(id.to_string())) {
 					return;
 				}
@@ -415,7 +453,7 @@ impl NoteCollection {
 	fn get_notes_without_links(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::new();
 		let mut f = |note: &Note| {
-			if note.get_links().len() == 0 {
+			if note.links.len() == 0 {
 				notes.push(note.get_meta());
 			}
 		};
@@ -426,8 +464,8 @@ impl NoteCollection {
 	fn get_todos(&self) -> HashMap<NoteMeta, Vec<String>> {
 		let mut todos = HashMap::new();
 		let mut f = |note: &Note| {
-			if note.get_todos().len() > 0 {
-				todos.insert(note.get_meta(), note.get_todos().clone());
+			if note.todos.len() > 0 {
+				todos.insert(note.get_meta(), note.todos.clone());
 			}
 		};
 		self.visit_notes(&mut f);
@@ -436,11 +474,29 @@ impl NoteCollection {
 
 	fn update_backlinks(&self) {}
 
-	fn update_filenames(&self) {}
+	fn get_mismatched_filenames(&self) -> Vec<(NoteMeta, String)> {
+		let mut fs = Vec::new();
+		let mut f = |note: &Note| {
+			let new_filename = if let Some(id) = &note.id {
+				NoteFile::escape_filename(&format!("{} {}", id, &note.title))
+			} else {
+				NoteFile::escape_filename(&note.title)
+			};
+
+			if note.file.stem != new_filename {
+				fs.push((
+					note.get_meta(),
+					format!("{}.{}", new_filename, &note.file.extension),
+				));
+			}
+		};
+		self.visit_notes(&mut f);
+		fs
+	}
 }
 
 fn visit_dirs(path: &path::Path, callback: &mut dyn FnMut(&path::PathBuf)) -> io::Result<()> {
-	println!("Visiting directory {:?}", path.as_os_str());
+	dbg!(path);
 	if path.is_dir() {
 		for entry in fs::read_dir(path)? {
 			let entry = entry?;
@@ -479,13 +535,18 @@ pub struct Config {
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
-	let parser = NoteParser::new(&config.id_pattern, &config.backlinks_heading);
-	let notes = NoteCollection::collect_files(&config.path, &config.extension, parser);
+	let notes = NoteCollection::collect_files(
+		&config.path,
+		&config.extension,
+		NoteParser::new(&config.id_pattern, &config.backlinks_heading)?,
+	);
 
 	match config.command.as_str() {
-		"todos" => print_todos(&notes),
-		"broken-links" => print_broken_links(&notes),
-		"orphans" => print_orphans(&notes),
+		"list-broken-links" => print_broken_links(&notes),
+		"list-orphans" => print_orphans(&notes),
+		"list-todos" => print_todos(&notes),
+		"update-backlinks" => update_backlinks(&notes)?,
+		"update-filenames" => update_filenames(&notes)?,
 		_ => print_stats(&notes),
 	}
 
@@ -493,13 +554,17 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 }
 
 fn print_stats(notes: &NoteCollection) {
-	println!("# Statistics\n");
+	println!("# {}\n", Style::new().bold().paint("Statistics"));
 
-	println!("- Number of notes: {}", notes.count());
+	println!("- Found number of notes: {}", notes.count());
+	println!("- Found number of note IDs: {}", notes.count_with_id());
+	println!("- Found number of links: {}", notes.count_links());
+
+	// TODO: Add number of written words and characters (without whitespace)
 }
 
 fn print_todos(notes: &NoteCollection) {
-	println!("# TODOs");
+	println!("# {}\n", Style::new().bold().paint("To-do"));
 
 	for (note, todos) in notes.get_todos() {
 		println!("\n## {}\n", note.get_wikilink_to());
@@ -511,7 +576,7 @@ fn print_todos(notes: &NoteCollection) {
 }
 
 fn print_orphans(notes: &NoteCollection) {
-	println!("# Orphans\n");
+	println!("# {}\n", Style::new().bold().paint("Orphans"));
 
 	for note in notes.get_orphans() {
 		println!("- {}", note.get_wikilink_to());
@@ -519,12 +584,39 @@ fn print_orphans(notes: &NoteCollection) {
 }
 
 fn print_broken_links(notes: &NoteCollection) {
-	println!("# Broken links\n");
+	println!("# {}\n", Style::new().bold().paint("Broken links"));
 
 	for (link, notes) in notes.get_broken_links() {
 		let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();
-		println!("- {}, from {}", link, linkers.join(", "));
+		println!("- \"{}\" links to unknown {}", linkers.join(" and "), link);
 	}
+}
+
+fn update_backlinks(notes: &NoteCollection) -> io::Result<()> {
+	Ok(())
+}
+
+fn update_filenames(notes: &NoteCollection) -> io::Result<()> {
+	for (note, new_filename) in notes.get_mismatched_filenames() {
+		let original_file_name = format!("{}.{}", note.stem, note.extension);
+		let reply = rprompt::prompt_reply_stdout(&format!(
+			"Rename \"{}\" to \"{}\"? ([y]/n) ",
+			original_file_name, new_filename
+		))?;
+
+		if reply == "y" || reply == "" {
+			if note.path.ends_with(&original_file_name) {
+				let folder = &note.path[..(note.path.len() - original_file_name.len())];
+				let new_path = folder.to_string() + &new_filename;
+				fs::rename(note.path, new_path)?;
+			} else {
+				// TODO: Return as Err
+				eprintln!("Error: probably a bug in how the file name path is determined");
+			}
+		}
+	}
+
+	Ok(())
 }
 
 #[cfg(test)]
@@ -536,6 +628,7 @@ mod tests {
 			r"\d{11,14}",
 			"-----------------\\r\\n**Links to this note**",
 		)
+		.expect("Test parser failed")
 	}
 
 	#[test]
@@ -548,12 +641,9 @@ mod tests {
 			Rc::clone(&parser),
 		);
 
-		assert_eq!(note.get_file_stem(), "12345678901 File Name Title");
-		assert_eq!(*note.get_id().as_ref().unwrap(), "1234567890123");
-		assert_eq!(
-			*note.get_title().as_ref().unwrap(),
-			"The Title In the Note Contents"
-		);
+		assert_eq!(note.file.stem, "12345678901 File Name Title");
+		assert_eq!(note.id.unwrap(), "1234567890123");
+		assert_eq!(note.title, "The Title In the Note Contents");
 	}
 
 	#[test]
@@ -564,9 +654,9 @@ mod tests {
 			Rc::clone(&parser),
 		);
 
-		assert_eq!(note.get_file_stem(), "Empty File With Name");
-		assert_eq!(note.get_id().as_ref(), None);
-		assert_eq!(*note.get_title().as_ref().unwrap(), "Empty File With Name");
+		assert_eq!(note.file.stem, "Empty File With Name");
+		assert_eq!(note.id, None);
+		assert_eq!(note.title, "Empty File With Name");
 	}
 
 	#[test]
@@ -574,7 +664,7 @@ mod tests {
 		let parser = get_default_parser();
 		let note_file = NoteFile::new(&path::PathBuf::from(r"testdata/12345678901 Test Note 1.md"));
 		let title = Note::get_title_assoc(&note_file, &parser);
-		assert_eq!(title.as_ref().unwrap(), "Test Note 1");
+		assert_eq!(title, "Test Note 1");
 	}
 
 	#[test]
@@ -582,7 +672,7 @@ mod tests {
 		let parser = get_default_parser();
 		let note_file = NoteFile::new(&path::PathBuf::from(r"testdata/One-liner.md"));
 		let title = Note::get_title_assoc(&note_file, &parser);
-		assert_eq!(title.as_ref().unwrap(), "Just a Heading");
+		assert_eq!(title, "Just a Heading");
 	}
 
 	#[test]
@@ -592,6 +682,8 @@ mod tests {
 			NoteFile::new(&path::PathBuf::from(r"testdata/Links.md")),
 			Rc::clone(&parser),
 		);
+
+		// parser.wiki_link_expr.find
 
 		assert!(note
 			.links
@@ -610,11 +702,17 @@ mod tests {
 			.contains(&WikiLink::FileName("Regular Link To Wiki URI".to_string())));
 		assert!(note
 			.links
-			.contains(&WikiLink::FileName("#my-custom-id".to_string())));
+			.contains(&WikiLink::FileName("Inside Fenced Code Block".to_string())));
 		assert!(note
 			.links
-			.contains(&WikiLink::FileName("Inside Fenced Code Block".to_string())));
-		assert_eq!(note.links.len(), 7);
+			.contains(&WikiLink::FileName("labelling wiki links".to_string())));
+		assert!(note
+			.links
+			.contains(&WikiLink::FileName("the filename first".to_string())));
+		assert!(note
+			.links
+			.contains(&WikiLink::FileName("a note".to_string())));
+		assert_eq!(note.links.len(), 9);
 	}
 
 	#[test]
@@ -624,8 +722,6 @@ mod tests {
 			NoteFile::new(&path::PathBuf::from(r"testdata/Todos.md")),
 			Rc::clone(&parser),
 		);
-
-		println!("{:?}", note.todos);
 
 		assert!(note.todos.contains(&"Don't forget to remember".to_string()));
 		assert!(note.todos.contains(&"Buy milk!".to_string()));
@@ -677,12 +773,34 @@ mod tests {
 		);
 
 		// All links in this file is in the backlinks section
-		assert_eq!(note.get_links().len(), 0);
+		assert_eq!(note.links.len(), 0);
 
 		let backlinks = parser.get_backlinks(&note.file.content);
 		assert!(backlinks.contains(&"[[§An outline note]]".to_string()));
 		assert!(backlinks.contains(&"[[20201012145848]] Another note".to_string()));
 		assert!(backlinks.contains(&"Not a link".to_string()));
 		assert_eq!(backlinks.len(), 3);
+	}
+
+	#[test]
+	fn escape_filename() {
+		assert_eq!(
+			NoteFile::escape_filename("Just a normal file name"),
+			"Just a normal file name"
+		);
+		assert_eq!(
+			NoteFile::escape_filename("<Is/this\\a::regular?*?*?file>"),
+			"Is this a regular file"
+		);
+		assert_eq!(NoteFile::escape_filename(".hidden file"), "hidden file");
+		assert_eq!(
+			NoteFile::escape_filename("illegal in windows."),
+			"illegal in windows"
+		);
+		assert_eq!(
+			NoteFile::escape_filename("a . in the middle"),
+			"a . in the middle"
+		);
+		assert_eq!(NoteFile::escape_filename(".:/?."), "");
 	}
 }

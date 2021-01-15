@@ -1,8 +1,6 @@
 use clap::{crate_version, App, Arg, SubCommand};
-use std::error::Error;
-use std::process;
-
 use noteexplorer::{run, Config};
+use std::process;
 
 fn main() {
 	let matches = App::new("NoteExplorer")
@@ -40,15 +38,35 @@ fn main() {
 				.default_value(".")
 				.index(1),
 		)
-		.subcommand(SubCommand::with_name("todos").about("Prints a compiled list of TODOs"))
 		.subcommand(
-			SubCommand::with_name("broken-links").about("Prints a compiled list of broken links"),
+			SubCommand::with_name("list-broken-links")
+				.alias("brokenlinks")
+				.about("Prints a list of broken links"),
 		)
 		.subcommand(
-			SubCommand::with_name("orphans").about("Prints a list of notes with no incoming links"),
+			SubCommand::with_name("list-orphans")
+				.alias("orphans")
+				.about("Prints a list of notes with no incoming links"),
+		)
+		.subcommand(
+			SubCommand::with_name("list-todos")
+				.aliases(&["todo", "todos"])
+				.about("Prints a list of TODOs"),
+		)
+		.subcommand(
+			SubCommand::with_name("update-backlinks")
+				.alias("backlinks")
+				.about("Updates backlinks sections in all notes"),
+		)
+		.subcommand(
+			SubCommand::with_name("update-filenames")
+				.alias("rename")
+				.about("Updates note filenames with ID and title"),
 		)
 		.get_matches();
 
+	// TODO: Add "exclude-files" argument
+	// TODO: Create new note from template
 	// TODO: Get list of longest notes
 	// TODO: Get list of shortest notes
 
@@ -62,5 +80,8 @@ fn main() {
 		command: command.to_string(),
 	};
 
-	run(config);
+	if let Err(e) = run(config) {
+		eprintln!("Application error: {}", e);
+		process::exit(1);
+	}
 }

@@ -1,11 +1,13 @@
 # TODO
 
-[] Nope
-- [] No
+[] No
+[ ] Nope
+- [] Not gonna happen
+- [ ]Still no
 - [ ] Don't forget to remember
 * [ ] Buy milk!
-    - [ ] Nested
-		* [ ] Tabbed
+    - [ ]  Nested
+		* [ ]  Tabbed
 - [x] Done
 ~~- [ ] Stricken~~
 
