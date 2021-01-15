@@ -55,6 +55,15 @@ impl NoteFile {
 			.trim()
 			.to_string()
 	}
+
+	fn begins_or_ends_with_dot_or_space(filename: &str) -> bool {
+		if filename.len() == 0 {
+			return false;
+		}
+		let first_char = filename.chars().nth(0).unwrap();
+		let last_char = filename.chars().last().unwrap();
+		first_char == ' ' || first_char == '.' || last_char == ' ' || last_char == '.'
+	}
 }
 
 #[derive(Debug)]
@@ -231,15 +240,15 @@ impl NoteParser {
 
 		let wiki_link_format = "\\[\\[(?x)
 			# Label can occur first, ends with |
-			({:file_name:}+\\|)?
+			([^\\[\\]]+\\|)?
 			(
 				# Filename or ID
-				{:file_name:}+?
+				{:link_chars:}+?
 			)
 			# Section can occur last, starts with #
-			((?-x:#){:file_name:}+)?
+			((?-x:#)[^\\[\\]]+)?
 			\\]\\]"
-			.replace("{:file_name:}", "[^<>:*?/\\]\\[\"\\\\\\r\\n\\t]");
+			.replace("{:link_chars:}", "[^<>:*?/\\]\\[\"\\\\\\r\\n\\t]");
 
 		/*
 			Regular expressions below use "(?:\r|\n|\z)" instead of "$",
@@ -284,14 +293,13 @@ impl NoteParser {
 	fn get_wiki_links(&self, text: &str) -> HashSet<WikiLink> {
 		let mut links = HashSet::new();
 		for capture in self.wiki_link_expr.captures_iter(&text) {
-			dbg!(&capture);
 			let link = capture[2].to_string();
 			if self.is_id(&link) {
 				links.insert(WikiLink::Id(link));
-			} else {
-				// TODO: Check if filename is valid here (beginning and ending space and dot at least)
-
+			} else if !NoteFile::begins_or_ends_with_dot_or_space(&link) {
 				links.insert(WikiLink::FileName(link));
+			} else {
+				dbg!(link);
 			}
 		}
 		links
@@ -683,36 +691,28 @@ mod tests {
 			Rc::clone(&parser),
 		);
 
-		// parser.wiki_link_expr.find
+		// dbg!(&note.links);
 
-		assert!(note
-			.links
-			.contains(&WikiLink::Id("20210104073402".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::Id("20210103212011".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("Filename Link".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("Search Query Link".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("Regular Link To Wiki URI".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("Inside Fenced Code Block".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("labelling wiki links".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("the filename first".to_string())));
-		assert!(note
-			.links
-			.contains(&WikiLink::FileName("a note".to_string())));
-		assert_eq!(note.links.len(), 9);
+		let expected_links = vec![
+			WikiLink::Id("20210104073402".to_string()),
+			WikiLink::Id("20210103212011".to_string()),
+			WikiLink::FileName("Filename Link".to_string()),
+			WikiLink::FileName("Search Query Link".to_string()),
+			WikiLink::FileName("Regular Link To Wiki URI".to_string()),
+			WikiLink::FileName("Inside Fenced Code Block".to_string()),
+			WikiLink::FileName("labelling wiki links".to_string()),
+			WikiLink::FileName("the filename first".to_string()),
+			WikiLink::FileName("a note".to_string()),
+			WikiLink::FileName("Stars and stripes".to_string()),
+			WikiLink::FileName("Stars or stripes".to_string()),
+			WikiLink::FileName("link 123".to_string()),
+			WikiLink::FileName("link 234".to_string()),
+		];
+
+		for expected_link in &expected_links {
+			assert!(note.links.contains(expected_link));
+		}
+		assert_eq!(note.links.len(), expected_links.len());
 	}
 
 	#[test]
