@@ -131,10 +131,6 @@ Note that everything after the backlinks heading will be removed.
 
 #### update-filenames
 
-```sh
-noteexplorer [PATH] update-filenames
-```
-
 Alias: `rename`
 
 Updates filenames of notes, based on the template `id title.<extension>`. So, if the ID is 12345678901234 and the H1 title in the note is "Title of the note", the filename will become "12345678901234 Title of the note.md".
