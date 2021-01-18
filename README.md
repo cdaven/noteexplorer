@@ -21,8 +21,7 @@ FLAGS:
     -V, --version    Prints version information
 
 OPTIONS:
-    -b, --backlinks-heading <format>    Heading to insert before backlinks [default: -----------------\r\n**Links to
-                                        this note**]
+    -b, --backlinks-heading <format>    Heading to insert before backlinks [default: ...]
     -e, --extension <ext>               File extension of note files [default: md]
     -i, --id-format <format>            Regular expression pattern for note ID:s [default: \d{14}]
 
@@ -77,9 +76,9 @@ Everything from this heading on, will be ignored by NoteExplorer when reading. S
 
 You should not write anything after this heading in your notes, as it will be removed when updating backlinks.
 
-Note that in order to change this heading for existing notes, you must first run the sub-command `remove-backlinks` and specify the current heading. Otherwise, you will get double backlink sections!
+Note that in order to change this heading for existing notes, you must first run the subcommand `remove-backlinks` and specify the current heading. Otherwise, you will get double backlink sections!
 
-### Sub-commands
+### Subcommands
 
 #### list-broken-links
 
@@ -115,17 +114,14 @@ Lists all source notes, meaning notes with no incoming links, but at least one o
 
 Alias: `todos`
 
-Lists all open todos from all notes. A todo is a list item that starts with `- [ ] `.
+Lists all open todos from all notes. A todo is a list item that starts with `- [ ] `. When you tick the box (`[x]`), the item will no longer be listed by the subcommand.
 
 See e.g. [TODO.md](https://github.com/todo-md/todo-md).
 
 #### remove-backlinks (not implemented yet)
 
-#### update-backlinks (not implemented yet)
 
-```sh
-noteexplorer [PATH] update-backlinks
-```
+#### update-backlinks (not implemented yet)
 
 Alias: `backlinks`
 
