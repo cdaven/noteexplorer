@@ -83,6 +83,7 @@ mod innerm {
 	struct Note {
 		file: NoteFile,
 		title: String,
+		title_lower: String,
 		id: Option<String>,
 		links: HashSet<WikiLink>,
 		todos: Vec<String>,
@@ -104,9 +105,11 @@ mod innerm {
 
 	impl Note {
 		fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
+			let title = Note::get_title_assoc(&file, &parser);
 			Note {
 				id: Note::get_id_assoc(&file, &parser),
-				title: Note::get_title_assoc(&file, &parser),
+				title_lower: title.to_lowercase(),
+				title: title,
 				links: Note::get_links_assoc(&file, &parser),
 				todos: Note::get_todos_assoc(&file, &parser),
 				parser,
@@ -154,6 +157,7 @@ mod innerm {
 			}
 		}
 	}
+
 	#[derive(PartialEq, Eq, Hash, Debug)]
 	pub struct NoteMeta {
 		pub path: String,
@@ -162,6 +166,7 @@ mod innerm {
 		pub title: String,
 		pub id: Option<String>,
 	}
+
 	impl NoteMeta {
 		pub fn get_wikilink_to(&self) -> String {
 			let id = self.id.as_ref().unwrap_or(&self.stem);
@@ -176,6 +181,7 @@ mod innerm {
 				.to_string()
 		}
 	}
+
 	#[derive(Eq, Clone, Debug)]
 	pub enum WikiLink {
 		Id(String),
@@ -324,6 +330,7 @@ mod innerm {
 			backlinks
 		}
 	}
+
 	pub struct NoteCollection {
 		/** Lookup for IDs and file names to all notes */
 		notes: HashMap<WikiLink, Rc<Note>>,
@@ -331,6 +338,7 @@ mod innerm {
 		notes_iter: Vec<Rc<Note>>,
 		backlinks: HashMap<WikiLink, Vec<Rc<Note>>>,
 	}
+
 	#[allow(dead_code)]
 	impl NoteCollection {
 		pub fn collect_files(root: &str, extension: &str, parser: NoteParser) -> NoteCollection {
@@ -368,22 +376,29 @@ mod innerm {
 					}
 				}
 			};
+
 			visit_dirs(path::Path::new(root), &mut note_factory).expect("Error occurred!");
+
+			// TODO: Doesn't always want to sort by title, should probably be elsewhere
+			notes_iter.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
+
 			NoteCollection {
 				notes,
 				notes_iter,
 				backlinks,
 			}
 		}
+
 		fn visit_notes(&self, callback: &mut dyn FnMut(&Note)) {
-			// TODO: Add sorting callback?
 			for note in &self.notes_iter {
 				callback(&note);
 			}
 		}
+
 		pub fn count(&self) -> usize {
 			self.notes_iter.len()
 		}
+
 		pub fn count_with_id(&self) -> usize {
 			let mut count: usize = 0;
 			let mut f = |note: &Note| {
@@ -394,6 +409,7 @@ mod innerm {
 			self.visit_notes(&mut f);
 			count
 		}
+
 		pub fn count_links(&self) -> usize {
 			self.backlinks.len()
 		}
@@ -464,11 +480,11 @@ mod innerm {
 			}
 			notes
 		}
-		pub fn get_todos(&self) -> HashMap<NoteMeta, Vec<String>> {
-			let mut todos = HashMap::new();
+		pub fn get_todos(&self) -> Vec<(NoteMeta, Vec<String>)> {
+			let mut todos = Vec::new();
 			let mut f = |note: &Note| {
 				if note.todos.len() > 0 {
-					todos.insert(note.get_meta(), note.todos.clone());
+					todos.push((note.get_meta(), note.todos.clone()));
 				}
 			};
 			self.visit_notes(&mut f);
@@ -736,20 +752,20 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 	Ok(())
 }
 
-fn print_stats(notes: &NoteCollection) {
+fn print_stats(note_collection: &NoteCollection) {
 	println!("# {}\n", Style::new().bold().paint("Statistics"));
 
-	println!("- Found number of notes: {}", notes.count());
-	println!("- Found number of note IDs: {}", notes.count_with_id());
-	println!("- Found number of links: {}", notes.count_links());
+	println!("- Found number of notes: {}", note_collection.count());
+	println!("- Found number of note IDs: {}", note_collection.count_with_id());
+	println!("- Found number of links: {}", note_collection.count_links());
 
 	// TODO: Add number of written words and characters (without whitespace)
 }
 
-fn print_todos(notes: &NoteCollection) {
-	println!("# {}\n", Style::new().bold().paint("To-do"));
+fn print_todos(note_collection: &NoteCollection) {
+	println!("# {}", Style::new().bold().paint("To-do"));
 
-	for (note, todos) in notes.get_todos() {
+	for (note, todos) in note_collection.get_todos() {
 		println!("\n## {}\n", note.get_wikilink_to());
 
 		for todo in todos {
@@ -758,45 +774,53 @@ fn print_todos(notes: &NoteCollection) {
 	}
 }
 
-fn print_sources(notes: &NoteCollection) {
+fn print_sources(note_collection: &NoteCollection) {
+	let notes = note_collection.get_sources();
+
 	println!("# {}\n", Style::new().bold().paint("Source notes"));
-
-	for note in notes.get_sources() {
-		println!("- {}", note.get_wikilink_to());
-	}
+	println!("{} notes have no incoming links, but at least one outgoing link\n", notes.len());
+	print_note_wikilink_list(&notes);
 }
 
-fn print_sinks(notes: &NoteCollection) {
+fn print_sinks(note_collection: &NoteCollection) {
+	let notes = note_collection.get_sinks();
+
 	println!("# {}\n", Style::new().bold().paint("Sink notes"));
-
-	for note in notes.get_sinks() {
-		println!("- {}", note.get_wikilink_to());
-	}
+	println!("{} notes have no outgoing links, but at least one incoming link\n", notes.len());
+	print_note_wikilink_list(&notes);
 }
 
-fn print_isolated(notes: &NoteCollection) {
+fn print_isolated(note_collection: &NoteCollection) {
+	let notes = note_collection.get_isolated();
+
 	println!("# {}\n", Style::new().bold().paint("Isolated notes"));
+	println!("{} notes have no incoming or outgoing links\n", notes.len());
+	print_note_wikilink_list(&notes);
+}
 
-	for note in notes.get_isolated() {
+fn print_note_wikilink_list(notes: &Vec<NoteMeta>) {
+	for note in notes {
 		println!("- {}", note.get_wikilink_to());
 	}
 }
 
-fn print_broken_links(notes: &NoteCollection) {
+fn print_broken_links(note_collection: &NoteCollection) {
+	let broken_links = note_collection.get_broken_links();
+
 	println!("# {}\n", Style::new().bold().paint("Broken links"));
 
-	for (link, notes) in notes.get_broken_links() {
+	for (link, notes) in broken_links {
 		let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();
 		println!("- \"{}\" links to unknown {}", linkers.join(" and "), link);
 	}
 }
 
-fn update_backlinks(notes: &NoteCollection) -> Result<(), Box<dyn Error>> {
+fn update_backlinks(note_collection: &NoteCollection) -> Result<(), Box<dyn Error>> {
 	Ok(())
 }
 
-fn update_filenames(notes: &NoteCollection) -> Result<(), Box<dyn Error>> {
-	for (note, new_filename) in notes.get_mismatched_filenames() {
+fn update_filenames(note_collection: &NoteCollection) -> Result<(), Box<dyn Error>> {
+	for (note, new_filename) in note_collection.get_mismatched_filenames() {
 		let original_file_name = format!("{}.{}", note.stem, note.extension);
 		let reply = rprompt::prompt_reply_stdout(&format!(
 			"Rename \"{}\" to \"{}\"? ([y]/n) ",
