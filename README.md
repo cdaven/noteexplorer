@@ -4,7 +4,7 @@ NoteExplorer is a tool to help organizing your stack of (wiki-)linked Markdown n
 
 ## General tips
 
-When trying out NoteExplorer, please make backups of your notes, in case the tool doesn't work as expected, or you change your mind, or anything bad happens.
+When trying out NoteExplorer, please make backups of your notes, in case the tool doesn't work as expected, or you change your mind.
 
 I keep all my notes in a Git repository, and commit them before trying something new. That way, I can always revert unwanted changes.
 
@@ -185,17 +185,7 @@ Here's why:
 3. Your file system doesn't accept all characters in file names, which means that the file name will
    be a somewhat poorer representation of the real title.
 
-## Graph theory
-
-You can think of linked notes as a graph, where the notes are *vertices* and the links are *edges*.
-
-https://en.wikipedia.org/wiki/Vertex_(graph_theory)#Types_of_vertices:
-
-> The degree of a vertex, denoted 𝛿(v) in a graph is the number of edges incident to it. An *isolated* vertex is a vertex with degree zero; that is, a vertex that is not an endpoint of any edge (the example image illustrates one isolated vertex). A *leaf* vertex (also pendant vertex) is a vertex with degree one. In a directed graph, one can distinguish the outdegree (number of outgoing edges), denoted 𝛿 +(v), from the indegree (number of incoming edges), denoted 𝛿−(v); a *source* vertex is a vertex with indegree zero, while a *sink* vertex is a vertex with outdegree zero.
-
-"Incoming edges" is another term for "backlinks".
-
-## History
+## Background
 
 This tool was inspired by [Andy Matuschak's note-link-janitor](https://github.com/andymatuschak/note-link-janitor/). The first few iterations were done in Python during the Autumn and Winter of 2020. This became [katalorg](https://github.com/cdaven/katalorg).
 
