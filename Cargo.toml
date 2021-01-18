@@ -1,13 +1,13 @@
 [package]
 name = "noteexplorer"
 version = "0.1.0"
-description = "Helps explore and catalogue your Zettelkasten-like pile of notes"
+description = "Helps organizing your stack of linked Markdown notes"
 authors = ["Christian Davén <christian@daven.se>"]
 edition = "2018"
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/cdaven/katalorg"
-repository = "https://github.com/cdaven/katalorg.git"
+homepage = "https://github.com/cdaven/noteexplorer"
+repository = "https://github.com/cdaven/noteexplorer.git"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
