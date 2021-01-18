@@ -33,7 +33,7 @@ fn main() {
 				.default_value("-----------------\\r\\n**Links to this note**"),
 		)
 		.arg(
-			Arg::with_name("path")
+			Arg::with_name("PATH")
 				.help("Path to the note files directory")
 				.default_value(".")
 				.index(1),
