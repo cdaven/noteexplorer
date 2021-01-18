@@ -17,7 +17,7 @@ fn main() {
 		.arg(
 			Arg::with_name("id_format")
 				.short("i")
-				.long("idfmt")
+				.long("id-format")
 				.help("Regular expression pattern for note ID:s")
 				.takes_value(true)
 				.value_name("format")
@@ -26,7 +26,7 @@ fn main() {
 		.arg(
 			Arg::with_name("backlinks_heading")
 				.short("b")
-				.long("backhead")
+				.long("backlinks-heading")
 				.help("Heading to insert before backlinks")
 				.takes_value(true)
 				.value_name("format")
@@ -44,8 +44,18 @@ fn main() {
 				.about("Prints a list of broken links"),
 		)
 		.subcommand(
-			SubCommand::with_name("list-orphans")
-				.alias("orphans")
+			SubCommand::with_name("list-isolated")
+				.alias("isolated")
+				.about("Prints a list of notes with no incoming or outgoing links"),
+		)
+		.subcommand(
+			SubCommand::with_name("list-sinks")
+				.alias("sinks")
+				.about("Prints a list of notes with no outgoing links"),
+		)
+		.subcommand(
+			SubCommand::with_name("list-sources")
+				.alias("sources")
 				.about("Prints a list of notes with no incoming links"),
 		)
 		.subcommand(
@@ -56,7 +66,11 @@ fn main() {
 		.subcommand(
 			SubCommand::with_name("update-backlinks")
 				.alias("backlinks")
-				.about("Updates backlinks sections in all notes"),
+				.about("Updates backlink sections in all notes"),
+		)
+		.subcommand(
+			SubCommand::with_name("remove-backlinks")
+				.about("Removes backlink sections in all notes"),
 		)
 		.subcommand(
 			SubCommand::with_name("update-filenames")
@@ -66,6 +80,7 @@ fn main() {
 		.get_matches();
 
 	// TODO: Add "exclude-files" argument
+	// TODO: Add ""
 	// TODO: Create new note from template
 	// TODO: Get list of longest notes
 	// TODO: Get list of shortest notes
@@ -79,6 +94,8 @@ fn main() {
 		path: matches.value_of("path").unwrap().to_string(),
 		command: command.to_string(),
 	};
+
+	dbg!(&config);
 
 	if let Err(e) = run(config) {
 		eprintln!("Application error: {}", e);

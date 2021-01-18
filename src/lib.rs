@@ -101,6 +101,7 @@ mod innerm {
 			self.file.path.hash(state);
 		}
 	}
+
 	impl Note {
 		fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
 			Note {
@@ -138,6 +139,9 @@ mod innerm {
 		}
 		fn get_todos_assoc(file: &NoteFile, parser: &NoteParser) -> Vec<String> {
 			parser.get_todos(&file.content)
+		}
+		fn has_outgoing_links(&self) -> bool {
+			self.links.len() > 0
 		}
 		/** Return a copy of the note's meta data */
 		fn get_meta(&self) -> NoteMeta {
@@ -393,25 +397,60 @@ mod innerm {
 		pub fn count_links(&self) -> usize {
 			self.backlinks.len()
 		}
-		pub fn get_orphans(&self) -> Vec<NoteMeta> {
-			let mut orphans = Vec::new();
+
+		fn note_has_incoming_links(&self, note: &Note) -> bool {
+			if self
+				.backlinks
+				.contains_key(&WikiLink::FileName(note.file.stem.to_string()))
+			{
+				return true;
+			}
+
+			if let Some(id) = &note.id {
+				if self.backlinks.contains_key(&WikiLink::Id(id.to_string())) {
+					return true;
+				}
+			}
+
+			false
+		}
+
+		/** Get notes with no incoming links, but at least one outgoing */
+		pub fn get_sources(&self) -> Vec<NoteMeta> {
+			let mut sources = Vec::new();
 			let mut f = |note: &Note| {
-				if self
-					.backlinks
-					.contains_key(&WikiLink::FileName(note.file.stem.to_string()))
-				{
-					return;
+				if note.has_outgoing_links() && !self.note_has_incoming_links(note) {
+					sources.push(note.get_meta());
 				}
-				if let Some(id) = &note.id {
-					if self.backlinks.contains_key(&WikiLink::Id(id.to_string())) {
-						return;
-					}
-				}
-				orphans.push(note.get_meta());
 			};
 			self.visit_notes(&mut f);
-			orphans
+			sources
 		}
+
+		/** Get notes with no outgoing links, but at least one incoming */
+		pub fn get_sinks(&self) -> Vec<NoteMeta> {
+			let mut sinks = Vec::new();
+			let mut f = |note: &Note| {
+				if !note.has_outgoing_links() && self.note_has_incoming_links(note) {
+					sinks.push(note.get_meta());
+				}
+			};
+			self.visit_notes(&mut f);
+			sinks
+		}
+
+		/** Get notes with no incoming or outgoing links */
+		pub fn get_isolated(&self) -> Vec<NoteMeta> {
+			let mut isolated = Vec::new();
+			let mut f = |note: &Note| {
+				if !note.has_outgoing_links() && !self.note_has_incoming_links(note) {
+					isolated.push(note.get_meta());
+				}
+			};
+			self.visit_notes(&mut f);
+			isolated
+		}
+
 		pub fn get_broken_links(&self) -> Vec<(&WikiLink, Vec<NoteMeta>)> {
 			let mut notes = Vec::new();
 			let linked: HashSet<&WikiLink> = self.backlinks.keys().collect();
@@ -423,16 +462,6 @@ mod innerm {
 					.collect();
 				notes.push((*broken, linkers));
 			}
-			notes
-		}
-		pub fn get_notes_without_links(&self) -> Vec<NoteMeta> {
-			let mut notes = Vec::new();
-			let mut f = |note: &Note| {
-				if note.links.len() == 0 {
-					notes.push(note.get_meta());
-				}
-			};
-			self.visit_notes(&mut f);
 			notes
 		}
 		pub fn get_todos(&self) -> HashMap<NoteMeta, Vec<String>> {
@@ -695,7 +724,9 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
 	match config.command.as_str() {
 		"list-broken-links" => print_broken_links(&notes),
-		"list-orphans" => print_orphans(&notes),
+		"list-sources" => print_sources(&notes),
+		"list-sinks" => print_sinks(&notes),
+		"list-isolated" => print_isolated(&notes),
 		"list-todos" => print_todos(&notes),
 		"update-backlinks" => update_backlinks(&notes)?,
 		"update-filenames" => update_filenames(&notes)?,
@@ -727,10 +758,26 @@ fn print_todos(notes: &NoteCollection) {
 	}
 }
 
-fn print_orphans(notes: &NoteCollection) {
-	println!("# {}\n", Style::new().bold().paint("Orphans"));
+fn print_sources(notes: &NoteCollection) {
+	println!("# {}\n", Style::new().bold().paint("Source notes"));
 
-	for note in notes.get_orphans() {
+	for note in notes.get_sources() {
+		println!("- {}", note.get_wikilink_to());
+	}
+}
+
+fn print_sinks(notes: &NoteCollection) {
+	println!("# {}\n", Style::new().bold().paint("Sink notes"));
+
+	for note in notes.get_sinks() {
+		println!("- {}", note.get_wikilink_to());
+	}
+}
+
+fn print_isolated(notes: &NoteCollection) {
+	println!("# {}\n", Style::new().bold().paint("Isolated notes"));
+
+	for note in notes.get_isolated() {
 		println!("- {}", note.get_wikilink_to());
 	}
 }
