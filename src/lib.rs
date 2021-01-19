@@ -10,6 +10,7 @@ mod innerm {
 	use std::{fs, io, path};
 
 	lazy_static! {
+		static ref EMPTY_STRING: String = String::from("");
 		// These characters are replaced with " " (illegal in Windows)
 		static ref ILLEGAL_FILE_CHARS: Regex = Regex::new("[<>:*?/\"\\\\]").unwrap();
 		// "." at the beginning or end are removed
@@ -42,7 +43,7 @@ mod innerm {
 					.to_str()
 					.unwrap()
 					.to_string(),
-				content: fs::read_to_string(&path).expect("Error in read_to_string()"),
+				content: fs::read_to_string(&path).expect("Error while reading note file"),
 			}
 		}
 
@@ -73,6 +74,11 @@ mod innerm {
 			first_char == ' ' || first_char == '.' || last_char == ' ' || last_char == '.'
 		}
 
+		pub fn save(path: &str, contents: &str) -> io::Result<()> {
+			// Make sure file always ends with one newline
+			fs::write(&path, String::from(contents.trim_end()) + "\n")
+		}
+
 		/** Renames file, assuming that the path is valid and escaped */
 		pub fn rename(oldpath: &str, newpath: &str) -> io::Result<()> {
 			fs::rename(oldpath, newpath)
@@ -88,6 +94,7 @@ mod innerm {
 		links: HashSet<WikiLink>,
 		todos: Vec<String>,
 		parser: Rc<NoteParser>,
+		meta: Option<NoteMeta>,
 	}
 	// Use path as unique identifier for notes
 	impl PartialEq for Note {
@@ -114,8 +121,10 @@ mod innerm {
 				todos: Note::get_todos_assoc(&file, &parser),
 				parser,
 				file,
+				meta: None,
 			}
 		}
+
 		fn get_id_assoc(file: &NoteFile, parser: &NoteParser) -> Option<String> {
 			// First try to get ID from note text
 			if let Some(id) = parser.get_id(&file.content) {
@@ -128,6 +137,7 @@ mod innerm {
 				None
 			}
 		}
+
 		fn get_title_assoc(file: &NoteFile, parser: &NoteParser) -> String {
 			// Try first with a H1 title in the contents
 			if let Some(title) = parser.get_h1(&file.content) {
@@ -137,15 +147,27 @@ mod innerm {
 				parser.remove_id(&file.stem).trim().to_string()
 			}
 		}
+
 		fn get_links_assoc(file: &NoteFile, parser: &NoteParser) -> HashSet<WikiLink> {
-			parser.get_wiki_links(parser.get_content_without_backlinks(&file.content))
+			parser.get_wiki_links(parser.get_contents_without_backlinks(&file.content))
 		}
+
 		fn get_todos_assoc(file: &NoteFile, parser: &NoteParser) -> Vec<String> {
 			parser.get_todos(&file.content)
 		}
+
+		fn get_contents_without_backlinks(&self) -> &str {
+			self.parser.get_contents_without_backlinks(&self.file.content)
+		}
+
+		fn get_backlinks_section_without_heading(&self) -> Option<&str> {
+			self.parser.get_backlinks_section_without_heading(&self.file.content)
+		}
+
 		fn has_outgoing_links(&self) -> bool {
 			self.links.len() > 0
 		}
+
 		/** Return a copy of the note's meta data */
 		fn get_meta(&self) -> NoteMeta {
 			NoteMeta {
@@ -155,6 +177,27 @@ mod innerm {
 				title: self.title.clone(),
 				id: self.id.clone(),
 			}
+		}
+
+		fn get_wikilink_to(&self) -> String {
+			Note::get_wikilink(&self.id, &self.title, &self.file.stem)
+		}
+
+		fn get_wikilink(id: &Option<String>, title: &String, file_stem: &String) -> String {
+			// Link either to ID or filename
+			let link_target: &String = if let Some(i) = id { i } else { file_stem };
+
+			let link_desc: &String = if title == link_target {
+				// No need for a link description that matches the link target
+				// (E.g. "[[Filename link]] Filename link")
+				&EMPTY_STRING
+			} else {
+				title
+			};
+
+			format!("[[{}]] {}", link_target, link_desc)
+				.trim_end()
+				.to_string()
 		}
 	}
 
@@ -169,16 +212,7 @@ mod innerm {
 
 	impl NoteMeta {
 		pub fn get_wikilink_to(&self) -> String {
-			let id = self.id.as_ref().unwrap_or(&self.stem);
-			let title = if &self.title == id {
-				None
-			} else {
-				Some(&self.title)
-			};
-			// When the id and title are the same, don't repeat the title
-			format!("[[{}]] {}", id, title.unwrap_or(&String::from("")))
-				.trim_end()
-				.to_string()
+			Note::get_wikilink(&self.id, &self.title, &self.stem)
 		}
 	}
 
@@ -235,12 +269,14 @@ mod innerm {
 				Ok(expr) => expr,
 				Err(_) => return Err("Cannot parse ID format as regular expression"),
 			};
+
 			// Replace whitespace character representations
 			let backlinks_heading = backlinks_heading
 				.to_string()
 				.replace("\\r", "\r")
 				.replace("\\n", "\n")
 				.replace("\\t", "\t");
+
 			let wiki_link_format = "\\[\\[(?x)
 				# Label can occur first, ends with |
 				([^\\[\\]]+\\|)?
@@ -252,12 +288,14 @@ mod innerm {
 				((?-x:#)[^\\[\\]]+)?
 				\\]\\]"
 				.replace("{:link_chars:}", "[^<>:*?/\\]\\[\"\\\\\\r\\n\\t]");
+
 			/*
 				Regular expressions below use "(?:\r|\n|\z)" instead of "$",
 				since the latter for some reason doesn't match "\r"! This seems
 				like a different implementation from other languages, or possibly
 				some setting I'm unaware of.
 			*/
+
 			Ok(NoteParser {
 				id_pattern: id_pattern.to_string(),
 				id_expr,
@@ -300,6 +338,7 @@ mod innerm {
 			}
 			links
 		}
+
 		fn get_todos(&self, text: &str) -> Vec<String> {
 			let mut todos = Vec::new();
 			for capture in self.todo_expr.captures_iter(&text) {
@@ -307,25 +346,46 @@ mod innerm {
 			}
 			todos
 		}
-		fn get_content_without_backlinks<'a>(&self, text: &'a str) -> &'a str {
-			text.split(&self.backlinks_heading)
-				.nth(0)
-				.unwrap_or_default()
-				.trim()
+
+		fn split_contents_at_backlinks_heading<'a>(
+			&self,
+			text: &'a str,
+		) -> Option<(&'a str, &'a str)> {
+			if let Some(i) = text.find(&self.backlinks_heading) {
+				Some(text.split_at(i))
+			} else {
+				None
+			}
 		}
-		fn get_backlinks_section<'a>(&self, text: &'a str) -> &'a str {
-			text.split(&self.backlinks_heading)
-				.nth(1)
-				.unwrap_or_default()
-				.trim()
+
+		fn get_contents_without_backlinks<'a>(&self, text: &'a str) -> &'a str {
+			match self.split_contents_at_backlinks_heading(text) {
+				Some((contents, _)) => contents.trim(),
+				None => text,
+			}
 		}
+
+		fn get_backlinks_section<'a>(&self, text: &'a str) -> Option<&'a str> {
+			match self.split_contents_at_backlinks_heading(text) {
+				Some((_, backlinks)) => Some(backlinks.trim()),
+				None => None,
+			}
+		}
+
+		fn get_backlinks_section_without_heading<'a>(&self, text: &'a str) -> Option<&'a str> {
+			match self.split_contents_at_backlinks_heading(text) {
+				Some((_, backlinks)) => Some(backlinks[self.backlinks_heading.len()..].trim()),
+				None => None,
+			}
+		}
+
 		fn get_backlinks<'a>(&self, text: &'a str) -> Vec<String> {
+			// Note: backlinks should be unique, but
 			let mut backlinks = Vec::new();
-			for capture in self
-				.backlink_expr
-				.captures_iter(self.get_backlinks_section(text))
-			{
-				backlinks.push(capture[1].to_string());
+			if let Some(backlinks_section) = self.get_backlinks_section_without_heading(text) {
+				for capture in self.backlink_expr.captures_iter(backlinks_section) {
+					backlinks.push(capture[1].to_string());
+				}
 			}
 			backlinks
 		}
@@ -431,6 +491,25 @@ mod innerm {
 			false
 		}
 
+		fn get_incoming_links(&self, note: &Note) -> Vec<Rc<Note>> {
+			let empty: Vec<Rc<Note>> = Vec::new();
+			let mut links = self
+				.backlinks
+				.get(&WikiLink::FileName(note.file.stem.to_string()))
+				.unwrap_or(&empty)
+				.to_vec();
+			if let Some(id) = &note.id {
+				links.append(
+					&mut self
+						.backlinks
+						.get(&WikiLink::Id(id.to_string()))
+						.unwrap_or(&empty)
+						.to_vec(),
+				);
+			}
+			links
+		}
+
 		/** Get notes with no incoming links, but at least one outgoing */
 		pub fn get_sources(&self) -> Vec<NoteMeta> {
 			let mut sources = Vec::new();
@@ -490,7 +569,55 @@ mod innerm {
 			self.visit_notes(&mut f);
 			todos
 		}
-		pub fn update_backlinks(&self) {}
+		pub fn remove_backlinks(&self) -> i32 {
+			let mut count = 0;
+			let mut f = |note: &Note| {
+				if let Some((content, _)) = note
+					.parser
+					.split_contents_at_backlinks_heading(&note.file.content)
+				{
+					if let Err(e) = NoteFile::save(&note.file.path, &content) {
+						eprintln!("Error while saving note file {}: {}", note.file.path, e);
+					} else {
+						count += 1;
+					}
+				}
+			};
+			self.visit_notes(&mut f);
+			count
+		}
+
+		pub fn update_backlinks(&self) -> i32 {
+			let mut count = 0;
+			let mut f = |note: &Note| {
+				let mut incoming_links = self.get_incoming_links(note);
+				incoming_links.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
+				let new_backlinks: Vec<String> = incoming_links.iter().map(|linking_note| {
+					"- ".to_string() + &linking_note.get_wikilink_to()
+				}).collect();
+				let new_section = new_backlinks.join("\n");
+
+				let current_section = note.get_backlinks_section_without_heading().unwrap_or_default();
+				if current_section != new_section {
+					let new_contents = if new_section.len() > 0 {
+						// Add or update backlinks
+						note.get_contents_without_backlinks().trim_end().to_string() + "\n\n" + &note.parser.backlinks_heading + "\n\n" + &new_section
+					}
+					else {
+						// Remove backlinks
+						note.get_contents_without_backlinks().to_string()
+					};
+					if let Err(e) = NoteFile::save(&note.file.path, &new_contents) {
+						eprintln!("Error while saving note file {}: {}", note.file.path, e);
+					} else {
+						count += 1;
+					}
+				}
+			};
+			self.visit_notes(&mut f);
+			count
+		}
+
 		pub fn get_mismatched_filenames(&self) -> Vec<(NoteMeta, String)> {
 			let mut fs = Vec::new();
 			let mut f = |note: &Note| {
@@ -695,6 +822,40 @@ mod innerm {
 		}
 
 		#[test]
+		fn backlinks_heading_parser() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")),
+				Rc::clone(&parser),
+			);
+
+			if let Some((c1, c2)) = parser.split_contents_at_backlinks_heading(&note.file.content) {
+				assert_eq!(c1, "# Backlinks test case\r\n\r\nSome note text\r\n\r\n");
+				assert!(c2.starts_with(&parser.backlinks_heading));
+			} else {
+				panic!("split_contents_at_backlinks_heading() failed");
+			}
+
+			if let Some(s) = parser.get_backlinks_section_without_heading(&note.file.content) {
+				assert!(s.starts_with("- [["));
+			} else {
+				panic!("get_backlinks_section_without_heading() failed");
+			}
+
+			if let Some(_) =
+				parser.split_contents_at_backlinks_heading(&"# Just a heading\r\nNo backlinks ...")
+			{
+				panic!("split_contents_at_backlinks_heading() failed");
+			}
+
+			if let Some(_) = parser
+				.get_backlinks_section_without_heading(&"# Just a heading\r\nNo backlinks ...")
+			{
+				panic!("get_backlinks_section_without_heading() failed");
+			}
+		}
+
+		#[test]
 		fn clean_filename() {
 			assert_eq!(
 				NoteFile::clean_filename("Just a normal file name"),
@@ -744,7 +905,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 		"list-sinks" => print_sinks(&notes),
 		"list-isolated" => print_isolated(&notes),
 		"list-todos" => print_todos(&notes),
-		"update-backlinks" => update_backlinks(&notes)?,
+		"remove-backlinks" => remove_backlinks(&notes),
+		"update-backlinks" => update_backlinks(&notes),
 		"update-filenames" => update_filenames(&notes)?,
 		_ => print_stats(&notes),
 	}
@@ -756,7 +918,10 @@ fn print_stats(note_collection: &NoteCollection) {
 	println!("# {}\n", Style::new().bold().paint("Statistics"));
 
 	println!("- Found number of notes: {}", note_collection.count());
-	println!("- Found number of note IDs: {}", note_collection.count_with_id());
+	println!(
+		"- Found number of note IDs: {}",
+		note_collection.count_with_id()
+	);
 	println!("- Found number of links: {}", note_collection.count_links());
 
 	// TODO: Add number of written words and characters (without whitespace)
@@ -778,7 +943,10 @@ fn print_sources(note_collection: &NoteCollection) {
 	let notes = note_collection.get_sources();
 
 	println!("# {}\n", Style::new().bold().paint("Source notes"));
-	println!("{} notes have no incoming links, but at least one outgoing link\n", notes.len());
+	println!(
+		"{} notes have no incoming links, but at least one outgoing link\n",
+		notes.len()
+	);
 	print_note_wikilink_list(&notes);
 }
 
@@ -786,7 +954,10 @@ fn print_sinks(note_collection: &NoteCollection) {
 	let notes = note_collection.get_sinks();
 
 	println!("# {}\n", Style::new().bold().paint("Sink notes"));
-	println!("{} notes have no outgoing links, but at least one incoming link\n", notes.len());
+	println!(
+		"{} notes have no outgoing links, but at least one incoming link\n",
+		notes.len()
+	);
 	print_note_wikilink_list(&notes);
 }
 
@@ -815,8 +986,14 @@ fn print_broken_links(note_collection: &NoteCollection) {
 	}
 }
 
-fn update_backlinks(note_collection: &NoteCollection) -> Result<(), Box<dyn Error>> {
-	Ok(())
+fn remove_backlinks(note_collection: &NoteCollection) {
+	let num_removed = note_collection.remove_backlinks();
+	println!("Removed backlinks section from {} notes", num_removed);
+}
+
+fn update_backlinks(note_collection: &NoteCollection) {
+	let num_updated = note_collection.update_backlinks();
+	println!("Updated backlinks section in {} notes", num_updated);
 }
 
 fn update_filenames(note_collection: &NoteCollection) -> Result<(), Box<dyn Error>> {

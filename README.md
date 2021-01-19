@@ -70,7 +70,7 @@ A regular expression for finding note ID:s in text and filenames. Read more belo
 
 Alias: `-b`
 
-The heading that is expected or will be inserted before backlinks in notes. You can use \r, \n and \t characters in the string.
+The heading that is expected or will be inserted before backlinks in notes. You can use \r, \n and \t characters in the string. If you do use newlines in your heading, be aware that newlines on Windows can be represented either as \r\n or just \n, and you will not see the difference.
 
 Everything from this heading on, will be ignored by NoteExplorer when reading. So this affects the amount of words and links in the notes.
 
@@ -118,10 +118,13 @@ Lists all open todos from all notes. A todo is a list item that starts with `- [
 
 See e.g. [TODO.md](https://github.com/todo-md/todo-md).
 
-#### remove-backlinks (not implemented yet)
+#### remove-backlinks
 
+Removes backlinks from all notes, using the heading from the `--backlinks-heading` argument.
 
-#### update-backlinks (not implemented yet)
+Note that everything after the backlinks heading will be removed.
+
+#### update-backlinks
 
 Alias: `backlinks`
 

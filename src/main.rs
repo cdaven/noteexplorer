@@ -30,7 +30,7 @@ fn main() {
 				.help("Heading to insert before backlinks")
 				.takes_value(true)
 				.value_name("format")
-				.default_value("-----------------\\r\\n**Links to this note**"),
+				.default_value("## Links to this note"),
 		)
 		.arg(
 			Arg::with_name("PATH")
@@ -80,7 +80,6 @@ fn main() {
 		.get_matches();
 
 	// TODO: Add "exclude-files" argument
-	// TODO: Add ""
 	// TODO: Create new note from template
 	// TODO: Get list of longest notes
 	// TODO: Get list of shortest notes
@@ -91,7 +90,7 @@ fn main() {
 		extension: matches.value_of("extension").unwrap().to_string(),
 		id_pattern: matches.value_of("id_format").unwrap().to_string(),
 		backlinks_heading: matches.value_of("backlinks_heading").unwrap().to_string(),
-		path: matches.value_of("path").unwrap().to_string(),
+		path: matches.value_of("PATH").unwrap().to_string(),
 		command: command.to_string(),
 	};
 
