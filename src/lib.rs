@@ -199,6 +199,17 @@ mod innerm {
 				.trim_end()
 				.to_string()
 		}
+
+		fn is_link_to(&self, link: &WikiLink) -> bool {
+			match link {
+				WikiLink::FileName(filename) => {
+					self.file.stem.to_lowercase() == filename.to_lowercase()
+				}
+				WikiLink::Id(id) => {
+					self.id.as_ref().unwrap_or(&EMPTY_STRING).to_lowercase() == id.to_lowercase()
+				}
+			}
+		}
 	}
 
 	#[derive(PartialEq, Eq, Hash, Debug)]
@@ -427,10 +438,13 @@ mod innerm {
 					);
 					notes_iter.push(Rc::clone(&note));
 					for link in &note.links {
-						backlinks
-							.entry(link.clone())
-							.or_insert(Vec::new())
-							.push(Rc::clone(&note));
+						// Ignore "backlinks" to self
+						if !note.is_link_to(link) {
+							backlinks
+								.entry(link.clone())
+								.or_insert(Vec::new())
+								.push(Rc::clone(&note));
+						}
 					}
 				}
 			};
