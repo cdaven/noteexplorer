@@ -126,12 +126,11 @@ mod innerm {
 		}
 
 		fn get_id_assoc(file: &NoteFile, parser: &NoteParser) -> Option<String> {
-			// First try to get ID from note text
-			if let Some(id) = parser.get_id(&file.content) {
+			// First try to get ID from note file name
+			if let Some(id) = parser.get_id(&file.stem) {
 				Some(id)
-			}
-			// Then try to get ID from note file name
-			else if let Some(id) = parser.get_id(&file.stem) {
+			// Then try to get ID from note contents
+			} else if let Some(id) = parser.get_id(&file.content) {
 				Some(id)
 			} else {
 				None
@@ -277,7 +276,7 @@ mod innerm {
 	#[allow(dead_code)]
 	impl NoteParser {
 		pub fn new(id_pattern: &str, backlinks_heading: &str) -> Result<NoteParser, &'static str> {
-			let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\s)", &id_pattern);
+			let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\b)", &id_pattern);
 			let id_expr = match Regex::new(&id_expr_str) {
 				Ok(expr) => expr,
 				Err(_) => return Err("Cannot parse ID format as regular expression"),
@@ -709,12 +708,12 @@ mod innerm {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
 				NoteFile::new(&path::PathBuf::from(
-					r"testdata/12345678901 File Name Title.md",
+					r"testdata/File Name Title.md",
 				)),
 				Rc::clone(&parser),
 			);
 
-			assert_eq!(note.file.stem, "12345678901 File Name Title");
+			assert_eq!(note.file.stem, "File Name Title");
 			assert_eq!(note.id.unwrap(), "1234567890123");
 			assert_eq!(note.title, "The Title In the Note Contents");
 		}
