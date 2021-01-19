@@ -190,6 +190,8 @@ NoteExplorer tries to parse the note's titles. The first Markdown H1 heading (su
 
 The `PATH` given to NoteExplorer is the directory folder, and all subdirectories will be traversed, looking for notes. However, all files and directories that begin with a dot (`.`) are ignored, since they are by tradition hidden in Linux and Mac OS.
 
+If two or more notes use the same ID, you will get a warning.
+
 Yet another limitation: NoteExplorer can only read files in UTF-8.
 
 ## Background
