@@ -191,3 +191,13 @@ This tool was inspired by [Andy Matuschak's note-link-janitor](https://github.co
 When I grew too frustrated with Python, I looked for a new language, and decided to learn Rust. It was hard at first, but is clearly a great choice for such command-line tools.
 
 The first version of NoteExplorer was ready in January 2021.
+
+## Developing and building
+
+NoteExplorer is written in Rust, and can be built on (at least) Windows, Mac OS and Linux.
+
+First, [install Rust](https://www.rust-lang.org/tools/install) and all its dependencies.
+
+Then you can build NoteExplorer by simply running `cargo build` or `cargo build --release`.
+
+Run unit tests with `cargo test`.

@@ -332,8 +332,6 @@ mod innerm {
 					links.insert(WikiLink::Id(link));
 				} else if !NoteFile::begins_or_ends_with_dot_or_space(&link) {
 					links.insert(WikiLink::FileName(link));
-				} else {
-					dbg!(link);
 				}
 			}
 			links
@@ -638,7 +636,6 @@ mod innerm {
 		}
 	}
 	fn visit_dirs(path: &path::Path, callback: &mut dyn FnMut(&path::PathBuf)) -> io::Result<()> {
-		dbg!(path);
 		if path.is_dir() {
 			for entry in fs::read_dir(path)? {
 				let entry = entry?;
@@ -729,8 +726,6 @@ mod innerm {
 				NoteFile::new(&path::PathBuf::from(r"testdata/Links.md")),
 				Rc::clone(&parser),
 			);
-
-			// dbg!(&note.links);
 
 			let expected_links = vec![
 				WikiLink::Id("20210104073402".to_string()),

@@ -79,11 +79,6 @@ fn main() {
 		)
 		.get_matches();
 
-	// TODO: Add "exclude-files" argument
-	// TODO: Create new note from template
-	// TODO: Get list of longest notes
-	// TODO: Get list of shortest notes
-
 	let command = matches.subcommand_name().unwrap_or_default();
 
 	let config = Config {
@@ -93,8 +88,6 @@ fn main() {
 		path: matches.value_of("PATH").unwrap().to_string(),
 		command: command.to_string(),
 	};
-
-	dbg!(&config);
 
 	if let Err(e) = run(config) {
 		eprintln!("Application error: {}", e);
