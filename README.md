@@ -111,7 +111,7 @@ Lists all source notes, meaning notes with no incoming links, but at least one o
 
 Alias: `todos`
 
-Lists all open todos from all notes. A todo is a list item that starts with `- [ ] `. When you tick the box (`[x]`), the item will no longer be listed by the subcommand.
+Lists all open todos from all notes. A todo is a list item that starts with `- [ ] `. When you tick the box (`[x]`), the item will not show up the next time you list todos.
 
 See e.g. [TODO.md](https://github.com/todo-md/todo-md).
 
@@ -147,7 +147,7 @@ For now, the only way to install is to copy the published binaries (Windows and 
 
 ## Limitations/rules
 
-NoteExplorer is in many ways inspired by [the ideas behind Zettlr](https://docs.zettlr.com/en/academic/zkn-method/), but should work with other note-taking systems that support Markdown WikiLinks.
+NoteExplorer is in many ways inspired by [the ideas behind Zettlr](https://docs.zettlr.com/en/academic/zkn-method/), but should work with other note-taking systems that support Markdown wikilinks.
 
 You can create links between notes with this syntax: `[[<label>|<id or filename>#<section>]]`, where both label and section are optional. There are two ways to pinpoint other notes in links.
 
