@@ -653,7 +653,7 @@ mod innerm {
 				} else {
 					NoteFile::clean_filename(&note.title)
 				};
-				if note.file.stem != new_filename {
+				if note.file.stem.to_lowercase() != new_filename.to_lowercase() {
 					fs.push((
 						note.get_meta(),
 						format!("{}.{}", new_filename, &note.file.extension),
