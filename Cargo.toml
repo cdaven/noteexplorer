@@ -1,6 +1,6 @@
 [package]
 name = "noteexplorer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Helps organizing your stack of linked Markdown notes"
 authors = ["Christian Davén <christian@daven.se>"]
 edition = "2018"

@@ -88,7 +88,7 @@ checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 
 [[package]]
 name = "noteexplorer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ansi_term 0.12.1",
  "clap",

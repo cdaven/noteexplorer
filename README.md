@@ -11,9 +11,6 @@ I keep all my notes in a Git repository, and commit them before trying something
 ## Usage
 
 ```
-NoteExplorer 0.1.0
-
-USAGE:
     noteexplorer.exe [OPTIONS] [PATH] [SUBCOMMAND]
 
 FLAGS:
@@ -136,7 +133,7 @@ Note that everything after the backlinks heading will be removed.
 
 Alias: `rename`
 
-Updates filenames of notes, based on the template `id title.<extension>`. So, if the ID is 12345678901234 and the H1 title in the note is "Title of the note", the filename will become "12345678901234 Title of the note.md".
+Updates filenames of notes, based on the template `(<id>) <title>.<extension>`. So, if the ID is 12345678901234 and the H1 title in the note is "Title of the note", the filename will become "12345678901234 Title of the note.md".
 
 If there is no ID, the filename will be just the title.
 
@@ -144,45 +141,56 @@ Some characters are illegal in Windows filenames, and will be replaced by spaces
 
 Asks for confirmation for each rename.
 
+## Installation
+
+For now, the only way to install is to copy the published binaries (Windows and Linux). See [releases on Github](https://github.com/cdaven/noteexplorer/releases).
+
 ## Limitations/rules
 
-NoteExplorer is in many ways inspired by [the ideas behind Zettlr](https://docs.zettlr.com/en/academic/zkn-method/), but should work with other Zettelkasten-like note-taking systems.
+NoteExplorer is in many ways inspired by [the ideas behind Zettlr](https://docs.zettlr.com/en/academic/zkn-method/), but should work with other note-taking systems that support Markdown WikiLinks.
 
-### Note ID:s
+You can create links between notes with this syntax: `[[<label>|<id or filename>#<section>]]`, where both label and section are optional. There are two ways to pinpoint other notes in links.
 
-- Note ID:s are expected to be numerical, by default with 14 digits
-- The format can be specified with the `--id-format` option
-- An ID in text must be surrounded by whitespace or the beginning or end of a line
-- Notes are expected to contain at most one ID. Subsequent ID:s will be ignored.
-- ID:s are expected to be unique across all folders in a collection
+### Filename links
 
-### Wiki links
+You can link to the target note's filename, like `[[There and back again]]`. Note that the path and file extension are omitted. Your note-taking application is assumed to find the right file anyway.
 
-- Wiki links follow this format: `[[<label>|<id or filename>#<section>]]`
-  - Label and section are optional and will be ignored for now
-  - The filename is without path and extension
-- The label and section cannot contain the characters `[` or `]`
-- Wiki links cannot contain any of the characters <, >, :, ", /, \, |, ?, * -- ?
+This means that filenames must be unique in a collection of notes. Also, filename links are expected to follow the same rules as filenames in Windows:
 
-### Files
+Filename links:
 
-- File names (without the extension) are expected to be unique across all folders in a collection
-- Files and directories that begin with a dot (".") are ignored
-- Files are expected to comply
-- Files are expected to use the UTF-8 encoding
+- Cannot contain any of the characters `<`, `>`, `:`, `"`, `/`, `\`, `|`, `?`, `*`, tabs and newlines. Most of these are ok on Linux and Mac OS, and some on Windows, but this helps make sure your notes and this application is cross-platform.
+- Cannot contain any of the characters `[`, `]`, `#`. This is simply because it messes up the wikilink syntax.
+- Cannot start or end with a dot (`.`). Technically, Windows only forbids trailing dots, but leading dots means "hidden file" in Linux and Mac OS.
+- Cannot start or end with a space (` `). This isn't forbidden by the operating systems, but seems like a reasonable limitation to avoid false positives.
 
-## Where ID and title are expected
+The labels and sections can contain any character except for `[`, `]`, `#`, `|`.
 
-The note contents has precedence over the file name. So, if you put one ID or title in the contents
-and another in the file name, NoteExplorer picks the ones from the contents.
+### ID links
 
-Here's why:
+The idea behind the Zettelkasten ID is to allow the filename to change without having to update all links pointing to that file. The ID can be included in the filename or the note itself.
 
-1. When you create a note, you can't come up with a great title before you've written anything. So
-   the file name is probably preliminary at this point.
-2. It's (usually) easier to change the heading in the note than to rename the file.
-3. Your file system doesn't accept all characters in file names, which means that the file name will
-   be a somewhat poorer representation of the real title.
+Of course, NoteExplorer must know the format of your IDs to be able to detect them. The default value is 14 digits (in regular expressions speak, this is "\d{14}"), which is a timestamp like 20210119212027. You can specify another format with the `--id-format` option.
+
+ID links are simple enough: `[[20210119212027]]`. Just the ID, no filename or title.
+
+### Specifying the ID of a note
+
+When specifying a note's ID, you can put it anywhere in the filename or note contents.
+
+If there is a string mathing your ID format in the filename, it is assumed to be the note's ID. Otherwise, the note's contents is scanned for the first matching ID.
+
+In both cases, the ID must have either a space or nothing in front of it, and a "non-word" character or nothing after it. This makes sure we don't match URLs with `/` and phone numbers with `+` before long numbers. It's not perfect, so it's best to keep the ID in the filename.
+
+### Parsing note titles
+
+NoteExplorer tries to parse the note's titles. The first Markdown H1 heading (such as `# An Unexpected Journey`) is preferred. Otherwise, the note's filename, after removing the ID, is used as a title.
+
+### Traversing your note collection
+
+The `PATH` given to NoteExplorer is the directory folder, and all subdirectories will be traversed, looking for notes. However, all files and directories that begin with a dot (`.`) are ignored, since they are by tradition hidden in Linux and Mac OS.
+
+Yet another limitation: NoteExplorer can only read files in UTF-8.
 
 ## Background
 
