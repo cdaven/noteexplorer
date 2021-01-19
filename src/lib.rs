@@ -157,11 +157,13 @@ mod innerm {
 		}
 
 		fn get_contents_without_backlinks(&self) -> &str {
-			self.parser.get_contents_without_backlinks(&self.file.content)
+			self.parser
+				.get_contents_without_backlinks(&self.file.content)
 		}
 
 		fn get_backlinks_section_without_heading(&self) -> Option<&str> {
-			self.parser.get_backlinks_section_without_heading(&self.file.content)
+			self.parser
+				.get_backlinks_section_without_heading(&self.file.content)
 		}
 
 		fn has_outgoing_links(&self) -> bool {
@@ -503,23 +505,26 @@ mod innerm {
 			false
 		}
 
-		fn get_incoming_links(&self, note: &Note) -> Vec<Rc<Note>> {
+		fn get_incoming_links(&self, note: &Note) -> HashSet<Rc<Note>> {
 			let empty: Vec<Rc<Note>> = Vec::new();
-			let mut links = self
+			let links1: HashSet<&Rc<Note>> = self
 				.backlinks
 				.get(&WikiLink::FileName(note.file.stem.to_string()))
 				.unwrap_or(&empty)
-				.to_vec();
-			if let Some(id) = &note.id {
-				links.append(
-					&mut self
-						.backlinks
-						.get(&WikiLink::Id(id.to_string()))
-						.unwrap_or(&empty)
-						.to_vec(),
-				);
-			}
-			links
+				.iter()
+				.collect();
+
+			let links2: HashSet<&Rc<Note>> = if let Some(id) = &note.id {
+				self.backlinks
+					.get(&WikiLink::Id(id.to_string()))
+					.unwrap_or(&empty)
+					.iter()
+					.collect()
+			} else {
+				HashSet::new()
+			};
+
+			links1.union(&links2).map(|rcn| Rc::clone(rcn)).collect()
 		}
 
 		/** Get notes with no incoming links, but at least one outgoing */
@@ -571,6 +576,7 @@ mod innerm {
 			}
 			notes
 		}
+
 		pub fn get_todos(&self) -> Vec<(NoteMeta, Vec<String>)> {
 			let mut todos = Vec::new();
 			let mut f = |note: &Note| {
@@ -581,6 +587,7 @@ mod innerm {
 			self.visit_notes(&mut f);
 			todos
 		}
+
 		pub fn remove_backlinks(&self) -> i32 {
 			let mut count = 0;
 			let mut f = |note: &Note| {
@@ -602,20 +609,29 @@ mod innerm {
 		pub fn update_backlinks(&self) -> i32 {
 			let mut count = 0;
 			let mut f = |note: &Note| {
-				let mut incoming_links = self.get_incoming_links(note);
+				let mut incoming_links: Vec<Rc<Note>> =
+					self.get_incoming_links(note).into_iter().collect();
+
+				// First sort by filename to get a stable sort when titles are identical
+				incoming_links.sort_by(|a, b| a.file.stem.cmp(&b.file.stem));
 				incoming_links.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
-				let new_backlinks: Vec<String> = incoming_links.iter().map(|linking_note| {
-					"- ".to_string() + &linking_note.get_wikilink_to()
-				}).collect();
+
+				let new_backlinks: Vec<String> = incoming_links
+					.iter()
+					.map(|linking_note| "- ".to_string() + &linking_note.get_wikilink_to())
+					.collect();
 				let new_section = new_backlinks.join("\n");
 
-				let current_section = note.get_backlinks_section_without_heading().unwrap_or_default();
+				let current_section = note
+					.get_backlinks_section_without_heading()
+					.unwrap_or_default();
 				if current_section != new_section {
 					let new_contents = if new_section.len() > 0 {
 						// Add or update backlinks
-						note.get_contents_without_backlinks().trim_end().to_string() + "\n\n" + &note.parser.backlinks_heading + "\n\n" + &new_section
-					}
-					else {
+						note.get_contents_without_backlinks().trim_end().to_string()
+							+ "\n\n" + &note.parser.backlinks_heading
+							+ "\n\n" + &new_section
+					} else {
 						// Remove backlinks
 						note.get_contents_without_backlinks().to_string()
 					};
