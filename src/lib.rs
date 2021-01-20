@@ -28,8 +28,8 @@ mod innerm {
 	}
 
 	impl NoteFile {
-		fn new(path: &path::PathBuf) -> NoteFile {
-			NoteFile {
+		fn new(path: &path::PathBuf) -> Result<NoteFile, io::Error> {
+			Ok(NoteFile {
 				path: path.as_os_str().to_str().unwrap().to_string(),
 				stem: path
 					.file_stem()
@@ -43,8 +43,8 @@ mod innerm {
 					.to_str()
 					.unwrap()
 					.to_string(),
-				content: fs::read_to_string(&path).expect("Error while reading note file"),
-			}
+				content: fs::read_to_string(&path)?,
+			})
 		}
 
 		/** Clean filename to comply with Windows, OSX and Linux rules, plus the extra rule that filenames don't start with dots or have leading spaces */
@@ -94,7 +94,6 @@ mod innerm {
 		links: HashSet<WikiLink>,
 		todos: Vec<String>,
 		parser: Rc<NoteParser>,
-		meta: Option<NoteMeta>,
 	}
 	// Use path as unique identifier for notes
 	impl PartialEq for Note {
@@ -121,7 +120,6 @@ mod innerm {
 				todos: Note::get_todos_assoc(&file, &parser),
 				parser,
 				file,
-				meta: None,
 			}
 		}
 
@@ -416,36 +414,53 @@ mod innerm {
 			let mut notes = HashMap::new();
 			let mut notes_iter = Vec::new();
 			let mut backlinks = HashMap::new();
+
 			let mut note_factory = |path: &path::PathBuf| {
-				let path_ext = path.extension().unwrap_or_default().to_str().unwrap();
-				if path_ext == extension {
-					let note = Rc::new(Note::new(NoteFile::new(&path), Rc::clone(&parser)));
-					if let Some(id) = &note.id {
-						if let Some(conflicting_note) =
-							notes.insert(WikiLink::Id(id.clone()), Rc::clone(&note))
-						{
-							eprintln!(
-								"{} The id {} was used in both \"{}\" and \"{}\"",
-								Colour::Yellow.paint("Warning:"),
-								id,
-								note.file.stem,
-								conflicting_note.file.stem
-							);
-						}
+				if extension != path.extension().unwrap_or_default().to_str().unwrap() {
+					return;
+				}
+
+				let note_file = match NoteFile::new(&path) {
+					Ok(nf) => nf,
+					Err(e) => {
+						eprintln!(
+							"{} Couldn't read file {}: {}",
+							Colour::Red.paint("Error:"),
+							path.to_string_lossy(),
+							e
+						);
+						return;
 					}
-					notes.insert(
-						WikiLink::FileName(note.file.stem.to_string()),
-						Rc::clone(&note),
-					);
-					notes_iter.push(Rc::clone(&note));
-					for link in &note.links {
-						// Ignore "backlinks" to self
-						if !note.is_link_to(link) {
-							backlinks
-								.entry(link.clone())
-								.or_insert(Vec::new())
-								.push(Rc::clone(&note));
-						}
+				};
+
+				let note = Rc::new(Note::new(note_file, Rc::clone(&parser)));
+				if let Some(id) = &note.id {
+					if let Some(conflicting_note) =
+						notes.insert(WikiLink::Id(id.clone()), Rc::clone(&note))
+					{
+						eprintln!(
+							"{} The id {} was used in both \"{}\" and \"{}\"",
+							Colour::Yellow.paint("Warning:"),
+							id,
+							note.file.stem,
+							conflicting_note.file.stem
+						);
+					}
+				}
+
+				notes.insert(
+					WikiLink::FileName(note.file.stem.to_string()),
+					Rc::clone(&note),
+				);
+
+				notes_iter.push(Rc::clone(&note));
+				for link in &note.links {
+					// Ignore "backlinks" to self
+					if !note.is_link_to(link) {
+						backlinks
+							.entry(link.clone())
+							.or_insert(Vec::new())
+							.push(Rc::clone(&note));
 					}
 				}
 			};
@@ -664,20 +679,12 @@ mod innerm {
 			fs
 		}
 	}
+
 	fn visit_dirs(path: &path::Path, callback: &mut dyn FnMut(&path::PathBuf)) -> io::Result<()> {
 		if path.is_dir() {
 			for entry in fs::read_dir(path)? {
-				let entry = entry?;
-				let path = entry.path();
-				let first_letter = path
-					.file_name()
-					.unwrap()
-					.to_str()
-					.unwrap()
-					.chars()
-					.nth(0)
-					.unwrap();
-				if first_letter == '.' {
+				let path = entry?.path();
+				if path.file_name().unwrap().to_str().unwrap().starts_with(".") {
 					// Ignore "hidden" files
 					continue;
 				}
@@ -707,9 +714,7 @@ mod innerm {
 		fn title_and_id_parser() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(
-					r"testdata/File Name Title.md",
-				)),
+				NoteFile::new(&path::PathBuf::from(r"testdata/File Name Title.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
@@ -722,7 +727,7 @@ mod innerm {
 		fn empty_file_parser() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Empty File With Name.md")),
+				NoteFile::new(&path::PathBuf::from(r"testdata/Empty File With Name.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
@@ -735,7 +740,8 @@ mod innerm {
 		fn title_parser() {
 			let parser = get_default_parser();
 			let note_file =
-				NoteFile::new(&path::PathBuf::from(r"testdata/12345678901 Test Note 1.md"));
+				NoteFile::new(&path::PathBuf::from(r"testdata/12345678901 Test Note 1.md"))
+					.unwrap();
 			let title = Note::get_title_assoc(&note_file, &parser);
 			assert_eq!(title, "Test Note 1");
 		}
@@ -743,7 +749,7 @@ mod innerm {
 		#[test]
 		fn oneliner_parser() {
 			let parser = get_default_parser();
-			let note_file = NoteFile::new(&path::PathBuf::from(r"testdata/One-liner.md"));
+			let note_file = NoteFile::new(&path::PathBuf::from(r"testdata/One-liner.md")).unwrap();
 			let title = Note::get_title_assoc(&note_file, &parser);
 			assert_eq!(title, "Just a Heading");
 		}
@@ -752,7 +758,7 @@ mod innerm {
 		fn link_parser() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Links.md")),
+				NoteFile::new(&path::PathBuf::from(r"testdata/Links.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
@@ -782,7 +788,7 @@ mod innerm {
 		fn todo_parser() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Todos.md")),
+				NoteFile::new(&path::PathBuf::from(r"testdata/Todos.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
@@ -831,7 +837,7 @@ mod innerm {
 		fn backlinks() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")),
+				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
@@ -849,7 +855,7 @@ mod innerm {
 		fn backlinks_heading_parser() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")),
+				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
