@@ -940,7 +940,9 @@ mod innerm {
 
 use crate::innerm::*;
 use ansi_term::{Colour, Style};
+use chrono::Utc;
 use std::error::Error;
+use debug_print::debug_println;
 
 #[derive(Debug)]
 pub struct Config {
@@ -952,12 +954,15 @@ pub struct Config {
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+	let start_time = Utc::now();
 	let notes = NoteCollection::collect_files(
 		&config.path,
 		&config.extension,
 		NoteParser::new(&config.id_pattern, &config.backlinks_heading)?,
 	);
+	let duration_collect_files = Utc::now() - start_time;
 
+	let start_time = Utc::now();
 	match config.command.as_str() {
 		"list-broken-links" => print_broken_links(&notes),
 		"list-sources" => print_sources(&notes),
@@ -969,6 +974,16 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 		"update-filenames" => update_filenames(&notes)?,
 		_ => print_stats(&notes),
 	}
+	let duration_subcommand = Utc::now() - start_time;
+
+	debug_println!(
+		"NoteCollection::collect_files() took {} ms",
+		duration_collect_files.num_milliseconds()
+	);
+	debug_println!(
+		"Subcommand took {} ms",
+		duration_subcommand.num_milliseconds()
+	);
 
 	Ok(())
 }

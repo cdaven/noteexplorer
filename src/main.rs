@@ -1,6 +1,8 @@
 use clap::{crate_version, App, Arg, SubCommand};
 use noteexplorer::{run, Config};
 use std::process;
+use chrono::Utc;
+use debug_print::debug_println;
 
 fn main() {
 	let matches = App::new("NoteExplorer")
@@ -89,8 +91,11 @@ fn main() {
 		command: command.to_string(),
 	};
 
+	let start_time = Utc::now();
 	if let Err(e) = run(config) {
 		eprintln!("Application error: {}", e);
 		process::exit(1);
 	}
+	let duration = Utc::now() - start_time;
+	debug_println!("run() took {} ms", duration.num_milliseconds());
 }

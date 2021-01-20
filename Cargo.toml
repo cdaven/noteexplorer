@@ -12,8 +12,10 @@ repository = "https://github.com/cdaven/noteexplorer.git"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-regex = "1"
-clap = "~2.33.0"
 ansi_term = "0.12"
-rprompt = "1.0"
+chrono = "0.4"
+clap = "~2.33.0"
+debug_print = "1"
 lazy_static = "1.4"
+regex = "1"
+rprompt = "1.0"
