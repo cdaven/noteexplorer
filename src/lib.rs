@@ -906,6 +906,35 @@ mod innerm {
 			);
 			assert_eq!(NoteFile::clean_filename(".:/?."), "");
 		}
+
+		#[test]
+		fn file_encodings_utf8_bom() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/BOM.md")).unwrap(),
+				Rc::clone(&parser),
+			);
+
+			// Vad är konsekvensen av att BOM är kvar? Den kommer ju då skrivas tillbaka korrekt när anteckningen sparas. Uppstår något problem?
+
+			assert_eq!(
+				note.file.content,
+				"Yxmördaren Julia Blomqvist på fäktning i Schweiz"
+			);
+		}
+
+		#[test]
+		fn file_encodings_win1252() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/Win-1252.md")).unwrap(),
+				Rc::clone(&parser),
+			);
+			assert_eq!(
+				note.file.content,
+				"Yxmördaren Julia Blomqvist på fäktning i Schweiz"
+			);
+		}
 	}
 }
 
