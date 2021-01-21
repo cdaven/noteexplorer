@@ -917,25 +917,18 @@ mod innerm {
 				Rc::clone(&parser),
 			);
 
-			// Vad är konsekvensen av att BOM är kvar? Den kommer ju då skrivas tillbaka korrekt när anteckningen sparas. Uppstår något problem?
-
 			assert_eq!(
-				note.file.content,
-				"Yxmördaren Julia Blomqvist på fäktning i Schweiz"
+				note.file.content.chars().nth(0).unwrap(),
+				'\u{feff}'
 			);
 		}
 
 		#[test]
 		fn file_encodings_win1252() {
-			let parser = Rc::new(get_default_parser());
-			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Win-1252.md")).unwrap(),
-				Rc::clone(&parser),
-			);
-			assert_eq!(
-				note.file.content,
-				"Yxmördaren Julia Blomqvist på fäktning i Schweiz"
-			);
+			match NoteFile::new(&path::PathBuf::from(r"testdata/Win-1252.md")) {
+				Ok(_) => panic!("Shouldn't be able to read Win-1252 file"),
+				Err(_) => ()
+			};
 		}
 	}
 }
