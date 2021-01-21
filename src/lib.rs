@@ -1,5 +1,6 @@
 mod innerm {
-	use ansi_term::{Colour, Style};
+	use crate::ftree;
+	use ansi_term::Colour;
 	use lazy_static::*;
 	use regex::Regex;
 	use std::collections::HashMap;
@@ -242,6 +243,7 @@ mod innerm {
 			}
 		}
 	}
+
 	// Case-insensitive hashing for the WikiLink value
 	impl Hash for WikiLink {
 		fn hash<H: Hasher>(&self, state: &mut H) {
@@ -252,6 +254,7 @@ mod innerm {
 			}
 		}
 	}
+
 	impl fmt::Display for WikiLink {
 		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 			use WikiLink::*;
@@ -261,6 +264,7 @@ mod innerm {
 			}
 		}
 	}
+
 	#[derive(Debug)]
 	pub struct NoteParser {
 		id_pattern: String,
@@ -271,7 +275,7 @@ mod innerm {
 		backlinks_heading: String,
 		backlink_expr: Regex,
 	}
-	#[allow(dead_code)]
+
 	impl NoteParser {
 		pub fn new(id_pattern: &str, backlinks_heading: &str) -> Result<NoteParser, &'static str> {
 			let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\b)", &id_pattern);
@@ -407,33 +411,32 @@ mod innerm {
 		backlinks: HashMap<WikiLink, Vec<Rc<Note>>>,
 	}
 
-	#[allow(dead_code)]
 	impl NoteCollection {
-		pub fn collect_files(root: &str, extension: &str, parser: NoteParser) -> NoteCollection {
+		pub fn collect_files(root: &path::Path, extension: &str, parser: NoteParser) -> NoteCollection {
 			let parser = Rc::new(parser);
 			let mut notes = HashMap::new();
 			let mut notes_iter = Vec::new();
 			let mut backlinks = HashMap::new();
 
-			let mut note_factory = |path: &path::PathBuf| {
-				if extension != path.extension().unwrap_or_default().to_str().unwrap() {
-					return;
-				}
+			let note_paths = ftree::get_files(root, extension);
 
+			for path in note_paths {
 				let note_file = match NoteFile::new(&path) {
 					Ok(nf) => nf,
-					Err(e) => {
+					Err(err) => {
 						eprintln!(
 							"{} Couldn't read file {}: {}",
 							Colour::Red.paint("Error:"),
 							path.to_string_lossy(),
-							e
+							err
 						);
-						return;
+						continue;
 					}
 				};
 
 				let note = Rc::new(Note::new(note_file, Rc::clone(&parser)));
+				notes_iter.push(Rc::clone(&note));
+
 				if let Some(id) = &note.id {
 					if let Some(conflicting_note) =
 						notes.insert(WikiLink::Id(id.clone()), Rc::clone(&note))
@@ -453,7 +456,6 @@ mod innerm {
 					Rc::clone(&note),
 				);
 
-				notes_iter.push(Rc::clone(&note));
 				for link in &note.links {
 					// Ignore "backlinks" to self
 					if !note.is_link_to(link) {
@@ -463,9 +465,7 @@ mod innerm {
 							.push(Rc::clone(&note));
 					}
 				}
-			};
-
-			visit_dirs(path::Path::new(root), &mut note_factory).expect("Error occurred!");
+			}
 
 			// TODO: Doesn't always want to sort by title, should probably be elsewhere
 			notes_iter.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
@@ -678,24 +678,6 @@ mod innerm {
 			self.visit_notes(&mut f);
 			fs
 		}
-	}
-
-	fn visit_dirs(path: &path::Path, callback: &mut dyn FnMut(&path::PathBuf)) -> io::Result<()> {
-		if path.is_dir() {
-			for entry in fs::read_dir(path)? {
-				let path = entry?.path();
-				if path.file_name().unwrap().to_str().unwrap().starts_with(".") {
-					// Ignore "hidden" files
-					continue;
-				}
-				if path.is_dir() {
-					visit_dirs(&path, callback)?;
-				} else if path.is_file() {
-					callback(&path);
-				}
-			}
-		}
-		Ok(())
 	}
 
 	#[cfg(test)]
@@ -938,11 +920,55 @@ mod innerm {
 	}
 }
 
+mod ftree {
+	use ansi_term::Colour;
+	use std::path;
+	use walkdir::{DirEntry, WalkDir};
+
+	pub fn get_files(root: &path::Path, ext: &str) -> Vec<path::PathBuf> {
+		let mut files = Vec::new();
+
+		if root.is_dir() {
+			let walker = WalkDir::new(root).into_iter();
+			for entry in walker.filter_entry(|e| !is_hidden(e)) {
+				let entry = match entry {
+					Ok(e) => e,
+					Err(err) => {
+						let path = err.path().unwrap_or(path::Path::new("")).display();
+						eprintln!(
+							"{} Couldn't access {}",
+							Colour::Yellow.paint("Warning:"),
+							path
+						);
+						continue;
+					}
+				};
+
+				let path = entry.into_path();
+				if ext == path.extension().unwrap_or_default().to_str().unwrap() {
+					files.push(path);
+				}
+			}
+		}
+
+		files
+	}
+
+	fn is_hidden(entry: &DirEntry) -> bool {
+		entry
+			.file_name()
+			.to_str()
+			.map(|s| s.starts_with("."))
+			.unwrap_or(false)
+	}
+}
+
 use crate::innerm::*;
-use ansi_term::{Colour, Style};
+use ansi_term::Style;
 use chrono::Utc;
-use std::error::Error;
 use debug_print::debug_println;
+use std::error::Error;
+use std::fs;
 
 #[derive(Debug)]
 pub struct Config {
@@ -956,7 +982,7 @@ pub struct Config {
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 	let start_time = Utc::now();
 	let notes = NoteCollection::collect_files(
-		&config.path,
+		&fs::canonicalize(&config.path)?,
 		&config.extension,
 		NoteParser::new(&config.id_pattern, &config.backlinks_heading)?,
 	);
@@ -997,8 +1023,6 @@ fn print_stats(note_collection: &NoteCollection) {
 		note_collection.count_with_id()
 	);
 	println!("- Found number of links: {}", note_collection.count_links());
-
-	// TODO: Add number of written words and characters (without whitespace)
 }
 
 fn print_todos(note_collection: &NoteCollection) {
