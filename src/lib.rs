@@ -1,6 +1,8 @@
 mod innerm {
 	use crate::ftree;
 	use ansi_term::Colour;
+	use chrono::Utc;
+	use debug_print::debug_println;
 	use lazy_static::*;
 	use regex::Regex;
 	use std::collections::HashMap;
@@ -412,14 +414,20 @@ mod innerm {
 	}
 
 	impl NoteCollection {
-		pub fn collect_files(root: &path::Path, extension: &str, parser: NoteParser) -> NoteCollection {
+		pub fn collect_files(
+			root: &path::Path,
+			extension: &str,
+			parser: NoteParser,
+		) -> NoteCollection {
 			let parser = Rc::new(parser);
 			let mut notes = HashMap::new();
 			let mut notes_iter = Vec::new();
 			let mut backlinks = HashMap::new();
 
+			let start_time = Utc::now();
 			let note_paths = ftree::get_files(root, extension);
-
+			let duration_get_files = Utc::now() - start_time;
+			let start_time = Utc::now();
 			for path in note_paths {
 				let note_file = match NoteFile::new(&path) {
 					Ok(nf) => nf,
@@ -466,10 +474,22 @@ mod innerm {
 					}
 				}
 			}
+			let duration_note_loop = Utc::now() - start_time;
 
+			let start_time = Utc::now();
 			// TODO: Doesn't always want to sort by title, should probably be elsewhere
 			notes_iter.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
+			let duration_sort = Utc::now() - start_time;
 
+			debug_println!(
+				"ftree::get_files() took {} ms",
+				duration_get_files.num_milliseconds()
+			);
+			debug_println!(
+				"loading and parsing notes took {} ms",
+				duration_note_loop.num_milliseconds()
+			);
+			debug_println!("sorting notes took {} ms", duration_sort.num_milliseconds());
 			NoteCollection {
 				notes,
 				notes_iter,
@@ -1006,7 +1026,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 		duration_collect_files.num_milliseconds()
 	);
 	debug_println!(
-		"Subcommand took {} ms",
+		"Subcommand {} took {} ms",
+		&config.command,
 		duration_subcommand.num_milliseconds()
 	);
 
@@ -1014,23 +1035,23 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 }
 
 fn print_stats(note_collection: &NoteCollection) {
-	println!("# Statistics");
+	println!("# Statistics\n");
 
-	println!("- Found number of notes: {}", note_collection.count());
-	println!(
-		"- Found number of note IDs: {}",
-		note_collection.count_with_id()
-	);
-	println!("- Found number of links: {}", note_collection.count_links());
+	println!("- Notes in collection: {}", note_collection.count());
+	println!("- Notes with ID: {}", note_collection.count_with_id());
+	println!("- Wikilinks: {}", note_collection.count_links());
 }
 
 fn print_todos(note_collection: &NoteCollection) {
-	println!("# To-do");
+	let todos = note_collection.get_todos();
+	let num_todos: usize = todos.iter().map(|(_, t)| t.len()).sum();
+	println!("# To-do\n");
+	println!("There are {} tasks on your to-do list", num_todos);
 
-	for (note, todos) in note_collection.get_todos() {
+	for (note, tdos) in todos {
 		println!("\n## {}\n", note.get_wikilink_to());
 
-		for todo in todos {
+		for todo in tdos {
 			println!("- [ ] {}", todo);
 		}
 	}
@@ -1039,7 +1060,7 @@ fn print_todos(note_collection: &NoteCollection) {
 fn print_sources(note_collection: &NoteCollection) {
 	let notes = note_collection.get_sources();
 
-	println!("# Source notes");
+	println!("# Source notes\n");
 	println!(
 		"{} notes have no incoming links, but at least one outgoing link\n",
 		notes.len()
@@ -1050,7 +1071,7 @@ fn print_sources(note_collection: &NoteCollection) {
 fn print_sinks(note_collection: &NoteCollection) {
 	let notes = note_collection.get_sinks();
 
-	println!("# Sink notes");
+	println!("# Sink notes\n");
 	println!(
 		"{} notes have no outgoing links, but at least one incoming link\n",
 		notes.len()
@@ -1061,7 +1082,7 @@ fn print_sinks(note_collection: &NoteCollection) {
 fn print_isolated(note_collection: &NoteCollection) {
 	let notes = note_collection.get_isolated();
 
-	println!("# Isolated notes");
+	println!("# Isolated notes\n");
 	println!("{} notes have no incoming or outgoing links\n", notes.len());
 	print_note_wikilink_list(&notes);
 }
@@ -1075,7 +1096,7 @@ fn print_note_wikilink_list(notes: &Vec<NoteMeta>) {
 fn print_broken_links(note_collection: &NoteCollection) {
 	let broken_links = note_collection.get_broken_links();
 
-	println!("# Broken links");
+	println!("# Broken links\n");
 
 	for (link, notes) in broken_links {
 		let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();

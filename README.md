@@ -198,11 +198,9 @@ Yet another limitation: NoteExplorer can only read files in UTF-8.
 
 ## Background
 
-This tool was inspired by [Andy Matuschak's note-link-janitor](https://github.com/andymatuschak/note-link-janitor/). The first few iterations were done in Python during the Autumn and Winter of 2020. This became [katalorg](https://github.com/cdaven/katalorg).
+This tool was inspired by [Andy Matuschak's note-link-janitor](https://github.com/andymatuschak/note-link-janitor/).
 
-When I grew too frustrated with Python, I looked for a new language, and decided to learn Rust. It was hard at first (steep learning curve!), but is clearly a great choice for such command-line tools. The Rust version of the tool is approximately 10x faster on my personal collection of almost 500 notes, without using more threads.
-
-The first version of NoteExplorer was ready in January 2021.
+Read more in [Why is NoteExplorer written in Rust?](https://github.com/cdaven/noteexplorer/wiki/Why-is-NoteExplorer-written-in-Rust%3F)
 
 ## Developing and building
 
