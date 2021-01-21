@@ -964,7 +964,6 @@ mod ftree {
 }
 
 use crate::innerm::*;
-use ansi_term::Style;
 use chrono::Utc;
 use debug_print::debug_println;
 use std::error::Error;
@@ -1015,7 +1014,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 }
 
 fn print_stats(note_collection: &NoteCollection) {
-	println!("# {}\n", Style::new().bold().paint("Statistics"));
+	println!("# Statistics");
 
 	println!("- Found number of notes: {}", note_collection.count());
 	println!(
@@ -1026,7 +1025,7 @@ fn print_stats(note_collection: &NoteCollection) {
 }
 
 fn print_todos(note_collection: &NoteCollection) {
-	println!("# {}", Style::new().bold().paint("To-do"));
+	println!("# To-do");
 
 	for (note, todos) in note_collection.get_todos() {
 		println!("\n## {}\n", note.get_wikilink_to());
@@ -1040,7 +1039,7 @@ fn print_todos(note_collection: &NoteCollection) {
 fn print_sources(note_collection: &NoteCollection) {
 	let notes = note_collection.get_sources();
 
-	println!("# {}\n", Style::new().bold().paint("Source notes"));
+	println!("# Source notes");
 	println!(
 		"{} notes have no incoming links, but at least one outgoing link\n",
 		notes.len()
@@ -1051,7 +1050,7 @@ fn print_sources(note_collection: &NoteCollection) {
 fn print_sinks(note_collection: &NoteCollection) {
 	let notes = note_collection.get_sinks();
 
-	println!("# {}\n", Style::new().bold().paint("Sink notes"));
+	println!("# Sink notes");
 	println!(
 		"{} notes have no outgoing links, but at least one incoming link\n",
 		notes.len()
@@ -1062,7 +1061,7 @@ fn print_sinks(note_collection: &NoteCollection) {
 fn print_isolated(note_collection: &NoteCollection) {
 	let notes = note_collection.get_isolated();
 
-	println!("# {}\n", Style::new().bold().paint("Isolated notes"));
+	println!("# Isolated notes");
 	println!("{} notes have no incoming or outgoing links\n", notes.len());
 	print_note_wikilink_list(&notes);
 }
@@ -1076,7 +1075,7 @@ fn print_note_wikilink_list(notes: &Vec<NoteMeta>) {
 fn print_broken_links(note_collection: &NoteCollection) {
 	let broken_links = note_collection.get_broken_links();
 
-	println!("# {}\n", Style::new().bold().paint("Broken links"));
+	println!("# Broken links");
 
 	for (link, notes) in broken_links {
 		let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();
