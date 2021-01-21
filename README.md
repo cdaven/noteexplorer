@@ -69,6 +69,8 @@ Alias: `-b`
 
 The heading that is expected or will be inserted before backlinks in notes. You can use \r, \n and \t characters in the string. If you do use newlines in your heading, be aware that newlines on Windows can be represented either as \r\n or just \n, and you will not see the difference.
 
+Unfortunately, it seems that you cannot use "--" as part of the heading, since the arguments parser will think this is another option.
+
 Everything from this heading on, will be ignored by NoteExplorer when reading. So this affects the amount of words and links in the notes.
 
 You should not write anything after this heading in your notes, as it will be removed when updating backlinks.
@@ -133,11 +135,11 @@ Note that everything after the backlinks heading will be removed.
 
 Alias: `rename`
 
-Updates filenames of notes, based on the template `(<id>) <title>.<extension>`. So, if the ID is 12345678901234 and the H1 title in the note is "Title of the note", the filename will become "12345678901234 Title of the note.md".
+Updates filenames of notes, based on the template `(<id>) <title>.<extension>`. So, if the ID is 20210119212027 and the H1 title in the note is "A Thief In The Night", the filename will become "20210119212027 A Thief In The Night.md". (The extension is set with the `--extension` option.)
 
-If there is no ID, the filename will be just the title.
+If there is no ID, the filename will be just the title. If there is not title, the filename will be just the ID.
 
-Some characters are illegal in Windows filenames, and will be replaced by spaces. Filenames in Windows can also not end with a period (".").
+Some invalid characters will be cleaned from the title before saving as a file, since the operating systems object to them. Read more about this below, in "Filename links".
 
 Asks for confirmation for each rename.
 
@@ -184,11 +186,11 @@ In both cases, the ID must have either a space or nothing in front of it, and a 
 
 ### Parsing note titles
 
-NoteExplorer tries to parse the note's titles. The first Markdown H1 heading (such as `# An Unexpected Journey`) is preferred. Otherwise, the note's filename, after removing the ID, is used as a title.
+NoteExplorer tries to parse the note's titles. The first Markdown H1 heading (such as `# Over Hill and Under Hill`) is preferred. Otherwise, the note's filename, after removing the ID, is used as the title.
 
 ### Traversing your note collection
 
-The `PATH` given to NoteExplorer is the directory folder, and all subdirectories will be traversed, looking for notes. However, all files and directories that begin with a dot (`.`) are ignored, since they are by tradition hidden in Linux and Mac OS.
+The `PATH` given to NoteExplorer is the root directory. All subdirectories will be traversed, looking for notes. However, all files and directories that begin with a dot (`.`) are ignored, since they are by tradition hidden in Linux and Mac OS.
 
 If two or more notes use the same ID, you will get a warning.
 
@@ -198,7 +200,7 @@ Yet another limitation: NoteExplorer can only read files in UTF-8.
 
 This tool was inspired by [Andy Matuschak's note-link-janitor](https://github.com/andymatuschak/note-link-janitor/). The first few iterations were done in Python during the Autumn and Winter of 2020. This became [katalorg](https://github.com/cdaven/katalorg).
 
-When I grew too frustrated with Python, I looked for a new language, and decided to learn Rust. It was hard at first, but is clearly a great choice for such command-line tools.
+When I grew too frustrated with Python, I looked for a new language, and decided to learn Rust. It was hard at first (steep learning curve!), but is clearly a great choice for such command-line tools. The Rust version of the tool is approximately 10x faster on my personal collection of almost 500 notes, without using more threads.
 
 The first version of NoteExplorer was ready in January 2021.
 
@@ -211,3 +213,5 @@ First, [install Rust](https://www.rust-lang.org/tools/install) and all its depen
 Then you can build NoteExplorer by simply running `cargo build` or `cargo build --release`.
 
 Run unit tests with `cargo test`.
+
+Lint code with `cargo clippy`.
