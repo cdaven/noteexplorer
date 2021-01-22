@@ -1,0 +1,3 @@
+﻿This Chocolatey package is created by the programmer
+
+checksum.exe .\noteexplorer.exe => EC0809410242D713C765D293702B28A2
