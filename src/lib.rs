@@ -69,11 +69,12 @@ mod innerm {
 		/** Checks if filename begins or ends with a dot or space.
 		 * This would be highly unorthodox file names, so we assume it's wrong. */
 		fn begins_or_ends_with_dot_or_space(filename: &str) -> bool {
-			if filename.len() == 0 {
+			if filename.is_empty() {
 				return false;
 			}
-			let first_char = filename.chars().nth(0).unwrap();
-			let last_char = filename.chars().last().unwrap();
+			let mut chars = filename.chars();
+			let first_char = chars.next().unwrap();
+			let last_char = chars.last().unwrap();
 			first_char == ' ' || first_char == '.' || last_char == ' ' || last_char == '.'
 		}
 
@@ -118,7 +119,7 @@ mod innerm {
 			Note {
 				id: Note::get_id_assoc(&file, &parser),
 				title_lower: title.to_lowercase(),
-				title: title,
+				title,
 				links: Note::get_links_assoc(&file, &parser),
 				todos: Note::get_todos_assoc(&file, &parser),
 				parser,
@@ -167,7 +168,7 @@ mod innerm {
 		}
 
 		fn has_outgoing_links(&self) -> bool {
-			self.links.len() > 0
+			!self.links.is_empty()
 		}
 
 		/** Return a copy of the note's meta data */
@@ -318,7 +319,7 @@ mod innerm {
 				wiki_link_expr: Regex::new(&wiki_link_format).unwrap(),
 				h1_expr: Regex::new(r"(?m)^#\s+(.+?)(?:\r|\n|\z)").unwrap(),
 				todo_expr: Regex::new(r"(?m)^\s*[-*]\s+\[ \]\s+(.+?)(?:\r|\n|\z)").unwrap(),
-				backlinks_heading: backlinks_heading,
+				backlinks_heading,
 				backlink_expr: Regex::new(r"(?m)^[-*]\s*(.*?)(?:\r|\n|\z)").unwrap(),
 			})
 		}
@@ -393,7 +394,7 @@ mod innerm {
 			}
 		}
 
-		fn get_backlinks<'a>(&self, text: &'a str) -> Vec<String> {
+		fn get_backlinks(&self, text: &str) -> Vec<String> {
 			// Note: backlinks should be unique, but
 			let mut backlinks = Vec::new();
 			if let Some(backlinks_section) = self.get_backlinks_section_without_heading(text) {
@@ -469,7 +470,7 @@ mod innerm {
 					if !note.is_link_to(link) {
 						backlinks
 							.entry(link.clone())
-							.or_insert(Vec::new())
+							.or_insert_with(Vec::new)
 							.push(Rc::clone(&note));
 					}
 				}
@@ -510,7 +511,7 @@ mod innerm {
 		pub fn count_with_id(&self) -> usize {
 			let mut count: usize = 0;
 			let mut f = |note: &Note| {
-				if let Some(_) = &note.id {
+				if note.id.is_some() {
 					count += 1;
 				}
 			};
@@ -614,7 +615,7 @@ mod innerm {
 		pub fn get_todos(&self) -> Vec<(NoteMeta, Vec<String>)> {
 			let mut todos = Vec::new();
 			let mut f = |note: &Note| {
-				if note.todos.len() > 0 {
+				if !note.todos.is_empty() {
 					todos.push((note.get_meta(), note.todos.clone()));
 				}
 			};
@@ -660,7 +661,7 @@ mod innerm {
 					.get_backlinks_section_without_heading()
 					.unwrap_or_default();
 				if current_section != new_section {
-					let new_contents = if new_section.len() > 0 {
+					let new_contents = if !new_section.is_empty() {
 						// Add or update backlinks
 						note.get_contents_without_backlinks().trim_end().to_string()
 							+ "\n\n" + &note.parser.backlinks_heading
@@ -918,7 +919,7 @@ mod innerm {
 			);
 
 			assert_eq!(
-				note.file.content.chars().nth(0).unwrap(),
+				note.file.content.chars().next().unwrap(),
 				'\u{feff}'
 			);
 		}
@@ -947,7 +948,7 @@ mod ftree {
 				let entry = match entry {
 					Ok(e) => e,
 					Err(err) => {
-						let path = err.path().unwrap_or(path::Path::new("")).display();
+						let path = err.path().unwrap_or_else(|| path::Path::new("")).display();
 						eprintln!(
 							"{} Couldn't access {}",
 							Colour::Yellow.paint("Warning:"),
@@ -971,7 +972,7 @@ mod ftree {
 		entry
 			.file_name()
 			.to_str()
-			.map(|s| s.starts_with("."))
+			.map(|s| s.starts_with('.'))
 			.unwrap_or(false)
 	}
 }
@@ -1080,7 +1081,7 @@ fn print_isolated(note_collection: &NoteCollection) {
 	print_note_wikilink_list(&notes);
 }
 
-fn print_note_wikilink_list(notes: &Vec<NoteMeta>) {
+fn print_note_wikilink_list(notes: &[NoteMeta]) {
 	for note in notes {
 		println!("- {}", note.get_wikilink_to());
 	}
@@ -1115,7 +1116,7 @@ fn update_filenames(note_collection: &NoteCollection) -> Result<(), Box<dyn Erro
 			original_file_name, new_filename
 		))?;
 
-		if reply == "y" || reply == "" {
+		if reply == "y" || reply.is_empty() {
 			if note.path.ends_with(&original_file_name) {
 				let folder = &note.path[..(note.path.len() - original_file_name.len())];
 				let new_path = folder.to_string() + &new_filename;
