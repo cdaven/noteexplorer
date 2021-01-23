@@ -1,4 +1,4 @@
-﻿<?xml version="1.0"?>
+<?xml version="1.0"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
   <metadata>
     <id>noteexplorer</id>
@@ -8,7 +8,7 @@
     <authors>Christian Davén</authors>
     <projectUrl>https://github.com/cdaven/noteexplorer</projectUrl>
     <projectSourceUrl>https://github.com/cdaven/noteexplorer</projectSourceUrl>
-    <packageSourceUrl>https://github.com/cdaven/noteexplorer/Chocolatey</packageSourceUrl>
+    <packageSourceUrl>https://github.com/cdaven/noteexplorer/tree/main/Chocolatey</packageSourceUrl>
     <bugTrackerUrl>https://github.com/cdaven/noteexplorer/issues</bugTrackerUrl>
     <licenseUrl>https://github.com/cdaven/noteexplorer/blob/main/LICENSE.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>

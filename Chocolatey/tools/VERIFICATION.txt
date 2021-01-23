@@ -1,3 +1,5 @@
-﻿This Chocolatey package is created by the programmer
+VERIFICATION
+Verification is intended to assist the Chocolatey moderators and community
+in verifying that this package's contents are trustworthy.
 
-checksum.exe .\noteexplorer.exe => EC0809410242D713C765D293702B28A2
+This package is published by the software author himself.
