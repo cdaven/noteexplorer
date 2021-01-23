@@ -1,5 +1,6 @@
 mod innerm {
 	use crate::ftree;
+	use crate::mdparse::NoteParser;
 	use ansi_term::Colour;
 	use chrono::Utc;
 	use debug_print::debug_println;
@@ -66,9 +67,9 @@ mod innerm {
 				.to_string()
 		}
 
-		/** Checks if filename begins or ends with a dot or space.
-		 * This would be highly unorthodox file names, so we assume it's wrong. */
-		fn begins_or_ends_with_dot_or_space(filename: &str) -> bool {
+		/// Checks if filename begins or ends with a dot or space.
+		/// This would be highly unorthodox file names, so we assume it's wrong.
+		pub fn begins_or_ends_with_dot_or_space(filename: &str) -> bool {
 			if filename.is_empty() {
 				return false;
 			}
@@ -97,6 +98,7 @@ mod innerm {
 		id: Option<String>,
 		links: HashSet<WikiLink>,
 		todos: Vec<String>,
+		backlinks: Vec<String>,
 		parser: Rc<NoteParser>,
 	}
 	// Use path as unique identifier for notes
@@ -115,46 +117,33 @@ mod innerm {
 
 	impl Note {
 		fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
-			let title = Note::get_title_assoc(&file, &parser);
+			let data = parser.parse(&file.content);
+
+			// ID in filename has priority over note contents
+			let id = match parser.get_id(&file.stem) {
+				Some(id) => {
+					// TODO: Warn if data.id.is_some() && id != data.id
+					Some(id)
+				}
+				None => data.id,
+			};
+
+			// Title in note contents has priority over filename
+			let title = match data.title {
+				Some(title) => title,
+				None => parser.remove_id(&file.stem).trim().to_string(),
+			};
+
 			Note {
-				id: Note::get_id_assoc(&file, &parser),
+				id,
 				title_lower: title.to_lowercase(),
 				title,
-				links: Note::get_links_assoc(&file, &parser),
-				todos: Note::get_todos_assoc(&file, &parser),
+				links: data.links,
+				todos: data.tasks,
+				backlinks: data.backlinks,
 				parser,
 				file,
 			}
-		}
-
-		fn get_id_assoc(file: &NoteFile, parser: &NoteParser) -> Option<String> {
-			// First try to get ID from note file name
-			if let Some(id) = parser.get_id(&file.stem) {
-				Some(id)
-			// Then try to get ID from note contents
-			} else if let Some(id) = parser.get_id(&file.content) {
-				Some(id)
-			} else {
-				None
-			}
-		}
-
-		fn get_title_assoc(file: &NoteFile, parser: &NoteParser) -> String {
-			// Try first with a H1 title in the contents
-			if let Some(title) = parser.get_h1(&file.content) {
-				title
-			} else {
-				// Then use file stem without ID (even if the wrong ID)
-				parser.remove_id(&file.stem).trim().to_string()
-			}
-		}
-
-		fn get_links_assoc(file: &NoteFile, parser: &NoteParser) -> HashSet<WikiLink> {
-			parser.get_wiki_links(parser.get_contents_without_backlinks(&file.content))
-		}
-
-		fn get_todos_assoc(file: &NoteFile, parser: &NoteParser) -> Vec<String> {
-			parser.get_todos(&file.content)
 		}
 
 		fn get_contents_without_backlinks(&self) -> &str {
@@ -265,144 +254,6 @@ mod innerm {
 				Id(link) => write!(f, "[[{}]]", link),
 				FileName(link) => write!(f, "[[{}]]", link),
 			}
-		}
-	}
-
-	#[derive(Debug)]
-	pub struct NoteParser {
-		id_pattern: String,
-		id_expr: Regex,
-		wiki_link_expr: Regex,
-		h1_expr: Regex,
-		todo_expr: Regex,
-		backlinks_heading: String,
-		backlink_expr: Regex,
-	}
-
-	impl NoteParser {
-		pub fn new(id_pattern: &str, backlinks_heading: &str) -> Result<NoteParser, &'static str> {
-			let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\b)", &id_pattern);
-			let id_expr = match Regex::new(&id_expr_str) {
-				Ok(expr) => expr,
-				Err(_) => return Err("Cannot parse ID format as regular expression"),
-			};
-
-			// Replace whitespace character representations
-			let backlinks_heading = backlinks_heading
-				.to_string()
-				.replace("\\r", "\r")
-				.replace("\\n", "\n")
-				.replace("\\t", "\t");
-
-			let wiki_link_format = "\\[\\[(?x)
-				# Label can occur first, ends with |
-				([^\\[\\]]+\\|)?
-				(
-					# Filename or ID
-					{:link_chars:}+?
-				)
-				# Section can occur last, starts with #
-				((?-x:#)[^\\[\\]]+)?
-				\\]\\]"
-				.replace("{:link_chars:}", "[^<>:*?/\\]\\[\"\\\\\\r\\n\\t]");
-
-			/*
-				Regular expressions below use "(?:\r|\n|\z)" instead of "$",
-				since the latter for some reason doesn't match "\r"! This seems
-				like a different implementation from other languages, or possibly
-				some setting I'm unaware of.
-			*/
-
-			Ok(NoteParser {
-				id_pattern: id_pattern.to_string(),
-				id_expr,
-				wiki_link_expr: Regex::new(&wiki_link_format).unwrap(),
-				h1_expr: Regex::new(r"(?m)^#\s+(.+?)(?:\r|\n|\z)").unwrap(),
-				todo_expr: Regex::new(r"(?m)^\s*[-*]\s+\[ \]\s+(.+?)(?:\r|\n|\z)").unwrap(),
-				backlinks_heading,
-				backlink_expr: Regex::new(r"(?m)^[-*]\s*(.*?)(?:\r|\n|\z)").unwrap(),
-			})
-		}
-		fn get_id(&self, text: &str) -> Option<String> {
-			match self.id_expr.captures(&text) {
-				None => None,
-				Some(capture) => Some(capture[1].to_string()),
-			}
-		}
-		fn is_id(&self, text: &str) -> bool {
-			self.id_expr.is_match(text)
-		}
-		fn remove_id(&self, text: &str) -> String {
-			self.id_expr.replace(text, "").to_string()
-		}
-		fn get_h1(&self, text: &str) -> Option<String> {
-			match self.h1_expr.captures(&text) {
-				None => None,
-				Some(capture) => Some(capture[1].to_string()),
-			}
-		}
-		fn get_wiki_links(&self, text: &str) -> HashSet<WikiLink> {
-			let mut links = HashSet::new();
-			for capture in self.wiki_link_expr.captures_iter(&text) {
-				let link = capture[2].to_string();
-				if self.is_id(&link) {
-					links.insert(WikiLink::Id(link));
-				} else if !NoteFile::begins_or_ends_with_dot_or_space(&link) {
-					links.insert(WikiLink::FileName(link));
-				}
-			}
-			links
-		}
-
-		fn get_todos(&self, text: &str) -> Vec<String> {
-			let mut todos = Vec::new();
-			for capture in self.todo_expr.captures_iter(&text) {
-				todos.push(capture[1].to_string());
-			}
-			todos
-		}
-
-		fn split_contents_at_backlinks_heading<'a>(
-			&self,
-			text: &'a str,
-		) -> Option<(&'a str, &'a str)> {
-			if let Some(i) = text.find(&self.backlinks_heading) {
-				Some(text.split_at(i))
-			} else {
-				None
-			}
-		}
-
-		fn get_contents_without_backlinks<'a>(&self, text: &'a str) -> &'a str {
-			match self.split_contents_at_backlinks_heading(text) {
-				Some((contents, _)) => contents.trim(),
-				None => text,
-			}
-		}
-
-		fn get_backlinks_section<'a>(&self, text: &'a str) -> Option<&'a str> {
-			match self.split_contents_at_backlinks_heading(text) {
-				Some((_, backlinks)) => Some(backlinks.trim()),
-				None => None,
-			}
-		}
-
-		fn get_backlinks_section_without_heading<'a>(&self, text: &'a str) -> Option<&'a str> {
-			match self.split_contents_at_backlinks_heading(text) {
-				Some((_, backlinks)) => Some(backlinks[self.backlinks_heading.len()..].trim()),
-				None => None,
-			}
-		}
-
-		fn get_backlinks(&self, text: &str) -> Vec<String> {
-			// Note: backlinks should be unique, but
-			let mut backlinks = Vec::new();
-			if let Some(backlinks_section) = self.get_backlinks_section_without_heading(text) {
-				for capture in self.backlink_expr.captures_iter(backlinks_section) {
-					backlinks.push(capture[1].to_string());
-				}
-			}
-			backlinks
 		}
 	}
 
@@ -706,11 +557,7 @@ mod innerm {
 		use crate::innerm::*;
 
 		fn get_default_parser() -> NoteParser {
-			NoteParser::new(
-				r"\d{11,14}",
-				"-----------------\\r\\n**Links to this note**",
-			)
-			.expect("Test parser failed")
+			NoteParser::new(r"\d{11,14}", "**Links to this note**").expect("Test parser failed")
 		}
 
 		#[test]
@@ -724,6 +571,30 @@ mod innerm {
 			assert_eq!(note.file.stem, "File Name Title");
 			assert_eq!(note.id.unwrap(), "1234567890123");
 			assert_eq!(note.title, "The Title In the Note Contents");
+		}
+
+		#[test]
+		fn yaml1_title_parser() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/yaml1.md")).unwrap(),
+				Rc::clone(&parser),
+			);
+
+			assert_eq!(note.title, "Plain YAML title");
+			assert!(note.id.is_none());
+		}
+
+		#[test]
+		fn yaml2_title_parser() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/yaml2.md")).unwrap(),
+				Rc::clone(&parser),
+			);
+
+			assert_eq!(note.title, "Plein: YAML title");
+			assert_eq!(note.id.unwrap(), "123123123123");
 		}
 
 		#[test]
@@ -741,20 +612,25 @@ mod innerm {
 
 		#[test]
 		fn title_parser() {
-			let parser = get_default_parser();
-			let note_file =
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
 				NoteFile::new(&path::PathBuf::from(r"testdata/12345678901 Test Note 1.md"))
-					.unwrap();
-			let title = Note::get_title_assoc(&note_file, &parser);
-			assert_eq!(title, "Test Note 1");
+					.unwrap(),
+				Rc::clone(&parser),
+			);
+
+			assert_eq!(note.title, "Test Note 1");
 		}
 
 		#[test]
 		fn oneliner_parser() {
-			let parser = get_default_parser();
-			let note_file = NoteFile::new(&path::PathBuf::from(r"testdata/One-liner.md")).unwrap();
-			let title = Note::get_title_assoc(&note_file, &parser);
-			assert_eq!(title, "Just a Heading");
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/One-liner.md")).unwrap(),
+				Rc::clone(&parser),
+			);
+
+			assert_eq!(note.title, "Just a Heading");
 		}
 
 		#[test]
@@ -766,12 +642,10 @@ mod innerm {
 			);
 
 			let expected_links = vec![
-				WikiLink::Id("20210104073402".to_string()),
 				WikiLink::Id("20210103212011".to_string()),
 				WikiLink::FileName("Filename Link".to_string()),
 				WikiLink::FileName("Search Query Link".to_string()),
 				WikiLink::FileName("Regular Link To Wiki URI".to_string()),
-				WikiLink::FileName("Inside Fenced Code Block".to_string()),
 				WikiLink::FileName("labelling wiki links".to_string()),
 				WikiLink::FileName("the filename first".to_string()),
 				WikiLink::FileName("a note".to_string()),
@@ -798,9 +672,11 @@ mod innerm {
 			assert!(note.todos.contains(&"Don't forget to remember".to_string()));
 			assert!(note.todos.contains(&"Buy milk!".to_string()));
 			assert!(note.todos.contains(&"Nested".to_string()));
-			assert!(note.todos.contains(&"Tabbed".to_string()));
+			assert!(note.todos.contains(&"Tabbed with [[link]]".to_string()));
 			assert!(note.todos.contains(&"Final line".to_string()));
 			assert_eq!(note.todos.len(), 5);
+
+			assert!(note.links.contains(&WikiLink::FileName(String::from("link"))));
 		}
 
 		#[test]
@@ -847,7 +723,8 @@ mod innerm {
 			// All links in this file is in the backlinks section
 			assert_eq!(note.links.len(), 0);
 
-			let backlinks = parser.get_backlinks(&note.file.content);
+			// TODO: It seems this test is the only place we use note.backlinks!
+			let backlinks = note.backlinks;
 			assert!(backlinks.contains(&"[[§An outline note]]".to_string()));
 			assert!(backlinks.contains(&"[[20201012145848]] Another note".to_string()));
 			assert!(backlinks.contains(&"Not a link".to_string()));
@@ -918,18 +795,268 @@ mod innerm {
 				Rc::clone(&parser),
 			);
 
-			assert_eq!(
-				note.file.content.chars().next().unwrap(),
-				'\u{feff}'
-			);
+			assert_eq!(note.file.content.chars().next().unwrap(), '\u{feff}');
 		}
 
 		#[test]
 		fn file_encodings_win1252() {
 			match NoteFile::new(&path::PathBuf::from(r"testdata/Win-1252.md")) {
 				Ok(_) => panic!("Shouldn't be able to read Win-1252 file"),
-				Err(_) => ()
+				Err(_) => (),
 			};
+		}
+	}
+}
+
+mod mdparse {
+	use crate::innerm::{NoteFile, WikiLink};
+	use lazy_static::*;
+	use regex::Regex;
+	use std::collections::HashSet;
+
+	lazy_static! {
+		static ref YAML_TITLE_EXPR: Regex =
+			Regex::new(r#"\A\s*['"]?title['"]?\s*: \s*['"]?([^'"]+)['"]?\z"#).unwrap();
+		static ref WIKILINK_EXPR: Regex = Regex::new(
+			&"\\[\\[(?x)
+			# Label can occur first, ends with |
+			([^\\[\\]]+\\|)?
+			(
+				# Filename or ID
+				{:link_chars:}+?
+			)
+			# Section can occur last, starts with #
+			((?-x:#)[^\\[\\]]+)?
+			\\]\\]"
+				.replace("{:link_chars:}", "[^<>:*?/\\]\\[\"\\\\\\t]")
+		)
+		.unwrap();
+		static ref TASK_EXPR: Regex = Regex::new(r"\A\s*[-*]\s+\[ \]\s+(.+?)\z").unwrap();
+		static ref BACKLINK_EXPR: Regex = Regex::new(r"\A[-*]\s*(.*?)\z").unwrap();
+		static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A[ \t]+[-*].+\z").unwrap();
+	}
+
+	enum ParseState {
+		Initial,
+		Yaml,
+		Regular,
+		CodeBlock,
+		BackLinks,
+	}
+
+	#[derive(Debug)]
+	pub struct NoteData {
+		pub title: Option<String>,
+		pub id: Option<String>,
+		pub links: HashSet<WikiLink>,
+		pub tasks: Vec<String>,
+		pub backlinks: Vec<String>,
+	}
+
+	#[derive(Debug)]
+	pub struct NoteParser {
+		id_pattern: String,
+		id_expr: Regex,
+		pub backlinks_heading: String,
+	}
+
+	impl NoteParser {
+		pub fn new(id_pattern: &str, backlinks_heading: &str) -> Result<NoteParser, &'static str> {
+			let id_expr_str = format!(r"(?:\A|\s)({})(?:\z|\b)", &id_pattern);
+			let id_expr = match Regex::new(&id_expr_str) {
+				Ok(expr) => expr,
+				Err(_) => return Err("Cannot parse ID format as regular expression"),
+			};
+
+			// Replace whitespace character representations
+			let backlinks_heading = backlinks_heading.to_string();
+
+			Ok(NoteParser {
+				id_pattern: id_pattern.to_string(),
+				id_expr,
+				backlinks_heading,
+			})
+		}
+
+		pub fn parse(&self, text: &str) -> NoteData {
+			let mut state = ParseState::Initial;
+			let mut lines = text.lines();
+			let mut line = lines.next();
+
+			let mut title: String = String::from("");
+			let mut id: String = String::from("");
+			let mut links = HashSet::new();
+			let mut tasks = Vec::new();
+			let mut backlinks = Vec::new();
+
+			loop {
+				//debug_println!("Parsing line '{:?}'", &line);
+
+				match line {
+					None => {
+						break;
+					}
+					Some(ln) => match state {
+						ParseState::Initial => {
+							if ln.is_empty() {
+								// Empty lines above YAML front matter is ok
+								line = lines.next();
+							} else if ln.starts_with("---") {
+								state = ParseState::Yaml;
+								line = lines.next();
+							} else {
+								state = ParseState::Regular;
+							}
+						}
+						ParseState::Yaml => {
+							if ln.is_empty() {
+								line = lines.next();
+							} else if ln.starts_with("---") || ln.starts_with("...") {
+								state = ParseState::Regular;
+								line = lines.next();
+							} else {
+								if title.is_empty() {
+									if let Some(capture) = YAML_TITLE_EXPR.captures(ln) {
+										title = capture[1].to_owned();
+									}
+								}
+								if id.is_empty() {
+									if let Some(capture) = self.id_expr.captures(ln) {
+										id = capture[1].to_owned();
+									}
+								}
+								line = lines.next();
+							}
+						}
+						ParseState::Regular => {
+							if ln.is_empty() {
+								// Ignore empty lines
+								line = lines.next();
+							} else if ln.starts_with("```") {
+								state = ParseState::CodeBlock;
+								line = lines.next();
+							} else if ln.starts_with("# ") {
+								if title.is_empty() {
+									title = ln.chars().skip(2).collect();
+								}
+								line = lines.next();
+							} else if ln == self.backlinks_heading {
+								state = ParseState::BackLinks;
+								line = lines.next();
+							} else if (ln.starts_with("    ") || ln.starts_with('\t'))
+								&& !INDENTED_LIST_EXPR.is_match(ln)
+							{
+								// Indentation that isn't in a list is a code block that we want to ignore
+								line = lines.next();
+							} else {
+								if id.is_empty() {
+									if let Some(capture) = self.id_expr.captures(ln) {
+										id = capture[1].to_owned();
+									}
+								}
+								if ln.contains("[[") {
+									links.extend(self.get_wiki_links(ln));
+								}
+								if ln.contains(" [ ]") {
+									tasks.extend(self.get_task(ln));
+								}
+								line = lines.next();
+							}
+						}
+						ParseState::CodeBlock => {
+							if ln.starts_with("```") {
+								state = ParseState::Regular;
+							}
+							line = lines.next();
+						}
+						ParseState::BackLinks => {
+							if ln.is_empty() {
+								// Ignore empty lines and lines beginning with 4 spaces (code block)
+								line = lines.next();
+							} else {
+								if let Some(capture) = BACKLINK_EXPR.captures(ln) {
+									backlinks.push(capture[1].to_owned());
+								}
+								line = lines.next();
+							}
+
+							// TODO: Could go back to Regular state here, or ignore other stuff
+						}
+					},
+				}
+			}
+
+			NoteData {
+				title: if title.is_empty() {
+					None
+				} else {
+					Some(title.trim().to_owned())
+				},
+				id: if id.is_empty() { None } else { Some(id) },
+				links,
+				tasks,
+				backlinks,
+			}
+		}
+
+		pub fn get_id(&self, text: &str) -> Option<String> {
+			match self.id_expr.captures(&text) {
+				None => None,
+				Some(capture) => Some(capture[1].to_string()),
+			}
+		}
+
+		fn is_id(&self, text: &str) -> bool {
+			self.id_expr.is_match(text)
+		}
+
+		pub fn remove_id(&self, text: &str) -> String {
+			self.id_expr.replace(text, "").to_string()
+		}
+
+		pub fn get_wiki_links(&self, text: &str) -> HashSet<WikiLink> {
+			let mut links = HashSet::new();
+			for capture in WIKILINK_EXPR.captures_iter(&text) {
+				let link = capture[2].to_string();
+				if self.is_id(&link) {
+					links.insert(WikiLink::Id(link));
+				} else if !NoteFile::begins_or_ends_with_dot_or_space(&link) {
+					links.insert(WikiLink::FileName(link));
+				}
+			}
+			links
+		}
+
+		pub fn get_task(&self, text: &str) -> Option<String> {
+			match TASK_EXPR.captures(&text) {
+				None => None,
+				Some(capture) => Some(capture[1].to_string()),
+			}
+		}
+
+		pub fn split_contents_at_backlinks_heading<'a>(
+			&self,
+			text: &'a str,
+		) -> Option<(&'a str, &'a str)> {
+			if let Some(i) = text.find(&self.backlinks_heading) {
+				Some(text.split_at(i))
+			} else {
+				None
+			}
+		}
+
+		pub fn get_contents_without_backlinks<'a>(&self, text: &'a str) -> &'a str {
+			match self.split_contents_at_backlinks_heading(text) {
+				Some((contents, _)) => contents.trim(),
+				None => text,
+			}
+		}
+
+		pub fn get_backlinks_section_without_heading<'a>(&self, text: &'a str) -> Option<&'a str> {
+			match self.split_contents_at_backlinks_heading(text) {
+				Some((_, backlinks)) => Some(backlinks[self.backlinks_heading.len()..].trim()),
+				None => None,
+			}
 		}
 	}
 }
@@ -977,7 +1104,8 @@ mod ftree {
 	}
 }
 
-use crate::innerm::*;
+use crate::innerm::{NoteCollection, NoteFile, NoteMeta};
+use crate::mdparse::NoteParser;
 use chrono::Utc;
 use debug_print::debug_println;
 use std::error::Error;

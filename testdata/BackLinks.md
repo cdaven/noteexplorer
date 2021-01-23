@@ -2,7 +2,6 @@
 
 Some note text
 
------------------
 **Links to this note**
 
 - [[§An outline note]]

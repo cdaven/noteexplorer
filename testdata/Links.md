@@ -1,5 +1,5 @@
 ---
-- related: [[20210104073402]]
+- related: [[20210104073402]], not parsed in Yaml
 ...
 
 - [ ] check
@@ -36,6 +36,8 @@ Maybe multiple links can trigger some greedy regex? [[label 123|link 123]] [[lab
 ```javascript
 var s = "[[Inside Fenced Code Block]]"
 ```
+
+	[[Also fenced]]
 
 ## Newline
 
