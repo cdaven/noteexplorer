@@ -67,7 +67,7 @@ A regular expression for finding note ID:s in text and filenames. Read more belo
 
 Alias: `-b`
 
-The heading that is expected or will be inserted before backlinks in notes. You can use \r, \n and \t characters in the string. If you do use newlines in your heading, be aware that newlines on Windows can be represented either as \r\n or just \n, and you will not see the difference.
+The heading that is expected or will be inserted before backlinks in notes.
 
 Unfortunately, it seems that you cannot use "--" as part of the heading, since the arguments parser will think this is another option.
 
@@ -135,9 +135,11 @@ Note that everything after the backlinks heading will be removed.
 
 Alias: `rename`
 
-Updates filenames of notes, based on the template `(<id>) <title>.<extension>`. So, if the ID is 20210119212027 and the H1 title in the note is "A Thief In The Night", the filename will become "20210119212027 A Thief In The Night.md". (The extension is set with the `--extension` option.)
+Updates filenames of notes, based on the template `(<id>) <title>.<extension>`. So, if the ID is 20210119212027 and the title in the note is "There and back again", the filename will become "20210119212027 There and back again.md". (The extension is set with the `--extension` option.)
 
 If there is no ID, the filename will be just the title. If there is not title, the filename will be just the ID.
+
+Read more about how NoteExplorer picks the [title](https://github.com/cdaven/noteexplorer/wiki/How-NoteExplorer-picks-the-title-of-a-note) and ID of a note.
 
 Some invalid characters will be cleaned from the title before saving as a file, since the operating systems object to them. Read more about this below, in "Filename links".
 
@@ -155,7 +157,7 @@ You can create links between notes with this syntax: `[[<label>|<id or filename>
 
 ### Filename links
 
-You can link to the target note's filename, like `[[There and back again]]`. Note that the path and file extension are omitted. Your note-taking application is assumed to find the right file anyway.
+You can link to the target note's filename, like `[[The Hobbit]]`. Note that filename links are case insensitive and the path and file extension is omitted. Your note-taking application is assumed to find the right file anyway.
 
 This means that filenames must be unique in a collection of notes. Also, filename links are expected to follow the same rules as filenames in Windows:
 
@@ -178,15 +180,17 @@ ID links are simple enough: `[[20210119212027]]`. Just the ID, no filename or ti
 
 ### Specifying the ID of a note
 
-When specifying a note's ID, you can put it anywhere in the filename or note contents.
+When specifying a note's ID, you can put it anywhere in the filename or note contents. Except in code blocks or after the backlinks heading.
 
 If there is a string mathing your ID format in the filename, it is assumed to be the note's ID. Otherwise, the note's contents is scanned for the first matching ID.
 
 In both cases, the ID must have either a space or nothing in front of it, and a "non-word" character or nothing after it. This makes sure we don't match URLs with `/` and phone numbers with `+` before long numbers. It's not perfect, so it's best to keep the ID in the filename.
 
+Note that you cannot specify the note's ID as a link, since that is assumed to link to another note.
+
 ### Parsing note titles
 
-NoteExplorer tries to parse the note's titles. The first Markdown H1 heading (such as `# Over Hill and Under Hill`) is preferred. Otherwise, the note's filename, after removing the ID, is used as the title.
+[How NoteExplorer picks the title of a note](https://github.com/cdaven/noteexplorer/wiki/How-NoteExplorer-picks-the-title-of-a-note)
 
 ### Traversing your note collection
 
