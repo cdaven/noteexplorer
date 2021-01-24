@@ -25,10 +25,10 @@ mod innerm {
 
 	#[derive(Debug)]
 	pub struct NoteFile {
-		path: String,
-		stem: String,
-		extension: String,
-		content: String,
+		pub path: String,
+		pub stem: String,
+		pub extension: String,
+		pub content: String,
 	}
 
 	impl NoteFile {
@@ -93,7 +93,7 @@ mod innerm {
 	#[derive(Debug)]
 	struct Note {
 		file: NoteFile,
-		title: String,
+		title: String, // TODO: Add test case for a file with ID but no title
 		title_lower: String,
 		id: Option<String>,
 		links: HashSet<WikiLink>,
@@ -117,27 +117,12 @@ mod innerm {
 
 	impl Note {
 		fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
-			let data = parser.parse(&file.content);
-
-			// ID in filename has priority over note contents
-			let id = match parser.get_id(&file.stem) {
-				Some(id) => {
-					// TODO: Warn if data.id.is_some() && id != data.id
-					Some(id)
-				}
-				None => data.id,
-			};
-
-			// Title in note contents has priority over filename
-			let title = match data.title {
-				Some(title) => title,
-				None => parser.remove_id(&file.stem).trim().to_string(),
-			};
+			let data = parser.parse(&file);
 
 			Note {
-				id,
-				title_lower: title.to_lowercase(),
-				title,
+				id: data.id,
+				title_lower: data.title.to_lowercase(),
+				title: data.title,
 				links: data.links,
 				todos: data.tasks,
 				backlinks: data.backlinks,
@@ -676,7 +661,9 @@ mod innerm {
 			assert!(note.todos.contains(&"Final line".to_string()));
 			assert_eq!(note.todos.len(), 5);
 
-			assert!(note.links.contains(&WikiLink::FileName(String::from("link"))));
+			assert!(note
+				.links
+				.contains(&WikiLink::FileName(String::from("link"))));
 		}
 
 		#[test]
@@ -846,7 +833,7 @@ mod mdparse {
 
 	#[derive(Debug)]
 	pub struct NoteData {
-		pub title: Option<String>,
+		pub title: String,
 		pub id: Option<String>,
 		pub links: HashSet<WikiLink>,
 		pub tasks: Vec<String>,
@@ -878,20 +865,22 @@ mod mdparse {
 			})
 		}
 
-		pub fn parse(&self, text: &str) -> NoteData {
+		pub fn parse(&self, file: &NoteFile) -> NoteData {
+			let (filename_id, filename_title) = self.parse_filename(&file.stem);
+
 			let mut state = ParseState::Initial;
-			let mut lines = text.lines();
+			let mut lines = file.content.lines();
 			let mut line = lines.next();
 
 			let mut title: String = String::from("");
-			let mut id: String = String::from("");
+			let mut id: String = filename_id.unwrap_or_else(|| String::from(""));
 			let mut links = HashSet::new();
 			let mut tasks = Vec::new();
 			let mut backlinks = Vec::new();
 
-			loop {
-				//debug_println!("Parsing line '{:?}'", &line);
+			// TODO: Could check for different IDs in the same file?
 
+			loop {
 				match line {
 					None => {
 						break;
@@ -938,6 +927,11 @@ mod mdparse {
 							} else if ln.starts_with("# ") {
 								if title.is_empty() {
 									title = ln.chars().skip(2).collect();
+								}
+								if id.is_empty() {
+									if let Some(capture) = self.id_expr.captures(ln) {
+										id = capture[1].to_owned();
+									}
 								}
 								line = lines.next();
 							} else if ln == self.backlinks_heading {
@@ -988,15 +982,22 @@ mod mdparse {
 
 			NoteData {
 				title: if title.is_empty() {
-					None
+					filename_title
 				} else {
-					Some(title.trim().to_owned())
+					title.trim().to_owned()
 				},
 				id: if id.is_empty() { None } else { Some(id) },
 				links,
 				tasks,
 				backlinks,
 			}
+		}
+
+		fn parse_filename(&self, filename: &str) -> (Option<String>, String) {
+			(
+				self.get_id(&filename),
+				self.remove_id(&filename).trim().to_string(),
+			)
 		}
 
 		pub fn get_id(&self, text: &str) -> Option<String> {
