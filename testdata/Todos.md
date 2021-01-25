@@ -7,7 +7,7 @@
 - [ ] Don't forget to remember
 * [ ] Buy milk!
     - [ ]  Nested
-		* [ ]  Tabbed with [[link]]
+		+ [ ]  Tabbed with [[link]]
 - [x] Done
 ~~- [ ] Stricken~~
 

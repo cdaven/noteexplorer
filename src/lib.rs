@@ -6,10 +6,10 @@ mod innerm {
 	use debug_print::debug_println;
 	use lazy_static::*;
 	use regex::Regex;
-	use std::collections::HashMap;
-	use std::collections::HashSet;
+	use std::collections::{HashMap, HashSet};
 	use std::fmt;
 	use std::hash::{Hash, Hasher};
+	use std::iter::FromIterator;
 	use std::rc::Rc;
 	use std::{fs, io, path};
 
@@ -117,13 +117,29 @@ mod innerm {
 
 	impl Note {
 		fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
-			let data = parser.parse(&file);
+			let mut data = parser.parse(&file.content);
+
+			if let Some(id) = parser.get_id(&file.stem) {
+				// Insert filename id at the top if the list of ids
+				data.ids.insert(0, id);
+			}
+
+			let filename_title = parser.remove_id(&file.stem);
+			if !filename_title.is_empty() {
+				// Add filename title at the end of the list of titles
+				data.titles.push(filename_title);
+			}
+
+			// TODO: Check for duplicate IDs and warn
+			// TODO: Chek for duplicate titles and warn
+
+			let title = data.titles.into_iter().next().unwrap_or_default();
 
 			Note {
-				id: data.id,
-				title_lower: data.title.to_lowercase(),
-				title: data.title,
-				links: data.links,
+				id: data.ids.into_iter().next(),
+				title_lower: title.to_lowercase(),
+				title: title,
+				links: HashSet::from_iter(data.links),
 				todos: data.tasks,
 				backlinks: data.backlinks,
 				parser,
@@ -627,17 +643,18 @@ mod innerm {
 			);
 
 			let expected_links = vec![
-				WikiLink::Id("20210103212011".to_string()),
-				WikiLink::FileName("Filename Link".to_string()),
-				WikiLink::FileName("Search Query Link".to_string()),
-				WikiLink::FileName("Regular Link To Wiki URI".to_string()),
-				WikiLink::FileName("labelling wiki links".to_string()),
-				WikiLink::FileName("the filename first".to_string()),
-				WikiLink::FileName("a note".to_string()),
-				WikiLink::FileName("Stars and stripes".to_string()),
-				WikiLink::FileName("Stars or stripes".to_string()),
-				WikiLink::FileName("link 123".to_string()),
-				WikiLink::FileName("link 234".to_string()),
+				WikiLink::Id("20210104073402".to_owned()),
+				WikiLink::Id("20210103212011".to_owned()),
+				WikiLink::FileName("Filename Link".to_owned()),
+				WikiLink::FileName("Search Query Link".to_owned()),
+				WikiLink::FileName("Regular Link To Wiki URI".to_owned()),
+				WikiLink::FileName("labelling wiki links".to_owned()),
+				WikiLink::FileName("the filename first".to_owned()),
+				WikiLink::FileName("a note".to_owned()),
+				WikiLink::FileName("Stars and stripes".to_owned()),
+				WikiLink::FileName("Stars or stripes".to_owned()),
+				WikiLink::FileName("link 123".to_owned()),
+				WikiLink::FileName("link 234".to_owned()),
 			];
 
 			for expected_link in &expected_links {
@@ -818,24 +835,24 @@ mod mdparse {
 				.replace("{:link_chars:}", "[^<>:*?/\\]\\[\"\\\\\\t]")
 		)
 		.unwrap();
-		static ref TASK_EXPR: Regex = Regex::new(r"\A\s*[-*]\s+\[ \]\s+(.+?)\z").unwrap();
-		static ref BACKLINK_EXPR: Regex = Regex::new(r"\A[-*]\s*(.*?)\z").unwrap();
-		static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A[ \t]+[-*].+\z").unwrap();
+		static ref TASK_EXPR: Regex = Regex::new(r"\A\s*[-+*]\s+\[ \]\s+(.+?)\z").unwrap();
+		static ref BACKLINK_EXPR: Regex = Regex::new(r"\A[-+*]\s*(.*?)\z").unwrap();
+		static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A\s+[-+*]\s.+\z").unwrap();
 	}
 
-	enum ParseState {
+	enum ParseState<'a> {
 		Initial,
 		Yaml,
 		Regular,
-		CodeBlock,
+		CodeBlock(&'a str),
 		BackLinks,
 	}
 
 	#[derive(Debug)]
 	pub struct NoteData {
-		pub title: String,
-		pub id: Option<String>,
-		pub links: HashSet<WikiLink>,
+		pub titles: Vec<String>,
+		pub ids: Vec<String>,
+		pub links: Vec<WikiLink>,
 		pub tasks: Vec<String>,
 		pub backlinks: Vec<String>,
 	}
@@ -865,139 +882,145 @@ mod mdparse {
 			})
 		}
 
-		pub fn parse(&self, file: &NoteFile) -> NoteData {
-			let (filename_id, filename_title) = self.parse_filename(&file.stem);
-
+		pub fn parse(&self, text: &str) -> NoteData {
 			let mut state = ParseState::Initial;
-			let mut lines = file.content.lines();
+			let mut lines = trim_bom(text).lines();
 			let mut line = lines.next();
 
-			let mut title: String = String::from("");
-			let mut id: String = filename_id.unwrap_or_else(|| String::from(""));
-			let mut links = HashSet::new();
+			let mut titles = Vec::new();
+			let mut ids = Vec::new();
+			let mut links = Vec::new();
 			let mut tasks = Vec::new();
 			let mut backlinks = Vec::new();
 
-			// TODO: Could check for different IDs in the same file?
+			// Two ways to start and end code blocks
+			let codeblock_token_1: String = String::from("```");
+			let codeblock_token_2: String = String::from("~~~");
+
+			// TODO: Instead of splitting on newline, maybe should advance until the next line?
+			// Like we have a position in the chars() array, and a slice that contains the current line.
+			// When advancing, we "eat" all newline characters straight away, and count them!
+			// Then we can save the exact position in the note for e.g. where the backlinks section starts (and ends)
 
 			loop {
-				match line {
-					None => {
-						break;
-					}
-					Some(ln) => match state {
-						ParseState::Initial => {
-							if ln.is_empty() {
-								// Empty lines above YAML front matter is ok
-								line = lines.next();
-							} else if ln.starts_with("---") {
-								state = ParseState::Yaml;
-								line = lines.next();
-							} else {
-								state = ParseState::Regular;
-							}
-						}
-						ParseState::Yaml => {
-							if ln.is_empty() {
-								line = lines.next();
-							} else if ln.starts_with("---") || ln.starts_with("...") {
-								state = ParseState::Regular;
-								line = lines.next();
-							} else {
-								if title.is_empty() {
-									if let Some(capture) = YAML_TITLE_EXPR.captures(ln) {
-										title = capture[1].to_owned();
-									}
-								}
-								if id.is_empty() {
-									if let Some(capture) = self.id_expr.captures(ln) {
-										id = capture[1].to_owned();
-									}
-								}
-								line = lines.next();
-							}
-						}
-						ParseState::Regular => {
-							if ln.is_empty() {
-								// Ignore empty lines
-								line = lines.next();
-							} else if ln.starts_with("```") {
-								state = ParseState::CodeBlock;
-								line = lines.next();
-							} else if ln.starts_with("# ") {
-								if title.is_empty() {
-									title = ln.chars().skip(2).collect();
-								}
-								if id.is_empty() {
-									if let Some(capture) = self.id_expr.captures(ln) {
-										id = capture[1].to_owned();
-									}
-								}
-								line = lines.next();
-							} else if ln == self.backlinks_heading {
-								state = ParseState::BackLinks;
-								line = lines.next();
-							} else if (ln.starts_with("    ") || ln.starts_with('\t'))
-								&& !INDENTED_LIST_EXPR.is_match(ln)
-							{
-								// Indentation that isn't in a list is a code block that we want to ignore
-								line = lines.next();
-							} else {
-								if id.is_empty() {
-									if let Some(capture) = self.id_expr.captures(ln) {
-										id = capture[1].to_owned();
-									}
-								}
-								if ln.contains("[[") {
-									links.extend(self.get_wiki_links(ln));
-								}
-								if ln.contains(" [ ]") {
-									tasks.extend(self.get_task(ln));
-								}
-								line = lines.next();
-							}
-						}
-						ParseState::CodeBlock => {
-							if ln.starts_with("```") {
-								state = ParseState::Regular;
-							}
-							line = lines.next();
-						}
-						ParseState::BackLinks => {
-							if ln.is_empty() {
-								// Ignore empty lines and lines beginning with 4 spaces (code block)
-								line = lines.next();
-							} else {
-								if let Some(capture) = BACKLINK_EXPR.captures(ln) {
-									backlinks.push(capture[1].to_owned());
-								}
-								line = lines.next();
-							}
+				if line.is_none() {
+					break;
+				}
 
-							// TODO: Could go back to Regular state here, or ignore other stuff
+				let ln = line.unwrap();
+				if ln.is_empty() {
+					// Always ignore empty lines
+					line = lines.next();
+					continue;
+				}
+				let ln_len = ln.chars().count();
+
+				match state {
+					ParseState::Initial => {
+						if ln.starts_with("---") {
+							state = ParseState::Yaml;
+							line = lines.next();
+						} else {
+							state = ParseState::Regular;
 						}
-					},
+					}
+					ParseState::Yaml => {
+						if ln.starts_with('#') {
+							// Ignore comments
+						} else if ln.starts_with("---") || ln.starts_with("...") {
+							state = ParseState::Regular;
+						} else {
+							if ln_len > 7 {
+								if let Some(capture) = YAML_TITLE_EXPR.captures(ln) {
+									titles.push(capture[1].to_owned());
+								}
+							}
+							if let Some(capture) = self.id_expr.captures(ln) {
+								ids.push(capture[1].to_owned());
+							}
+							if ln.contains("[[") {
+								links.extend(self.get_wiki_links(ln));
+							}
+						}
+						line = lines.next();
+					}
+					ParseState::Regular => {
+						if ln.starts_with("# ") && ln_len > 2 {
+							titles.push(
+								// Remove {.attributes} and trailing # characters and spaces
+								// See https://pandoc.org/MANUAL.html#pandocs-markdown
+								NoteParser::strip_heading_attributes(&ln[2..])
+									.trim_end_matches(|c| c == ' ' || c == '#')
+									.to_owned(),
+							);
+
+							// Allow ID in headings
+							if let Some(capture) = self.id_expr.captures(ln) {
+								ids.push(capture[1].to_owned());
+							}
+						} else if ln == self.backlinks_heading {
+							state = ParseState::BackLinks;
+						} else if (ln.starts_with("    ") || ln.starts_with('\t'))
+							&& !INDENTED_LIST_EXPR.is_match(ln)
+						{
+							// Ignore code blocks (not indented list items)
+						} else if ln == "***" || ln == "---" || ln == "___" {
+							// Ignore line-breaks
+						} else if ln.starts_with(&codeblock_token_1) {
+							state = ParseState::CodeBlock(&codeblock_token_1);
+						} else if ln.starts_with(&codeblock_token_2) {
+							state = ParseState::CodeBlock(&codeblock_token_2);
+						} else {
+							if let Some(capture) = self.id_expr.captures(ln) {
+								ids.push(capture[1].to_owned());
+							}
+							if ln.contains("[[") {
+								links.extend(self.get_wiki_links(ln));
+							}
+							if ln.contains(" [ ] ") {
+								tasks.extend(self.get_task(ln));
+							}
+						}
+						line = lines.next();
+					}
+					ParseState::CodeBlock(token) => {
+						if ln.starts_with(token) {
+							// Found end token
+							state = ParseState::Regular;
+						}
+						line = lines.next();
+					}
+					ParseState::BackLinks => {
+						if let Some(capture) = BACKLINK_EXPR.captures(ln) {
+							backlinks.push(capture[1].to_owned());
+							line = lines.next();
+						} else {
+							// List of backlinks is broken, what now?
+							state = ParseState::Regular;
+						}
+					}
 				}
 			}
 
 			NoteData {
-				title: if title.is_empty() {
-					filename_title
-				} else {
-					title.trim().to_owned()
-				},
-				id: if id.is_empty() { None } else { Some(id) },
+				titles,
+				ids,
 				links,
 				tasks,
 				backlinks,
 			}
 		}
 
-		fn parse_filename(&self, filename: &str) -> (Option<String>, String) {
-			(
-				self.get_id(&filename),
-				self.remove_id(&filename).trim().to_string(),
-			)
+		pub fn strip_heading_attributes(text: &str) -> String {
+			// Remove everything between the first { and the last }
+			if let Some(start) = text.find('{') {
+				if let Some(end) = text.rfind('}') {
+					if end == text.len() - 1 {
+						return (text[..start].to_string() + &text[end + 1..]).to_owned();
+					}
+				}
+			}
+			text.to_owned()
 		}
 
 		pub fn get_id(&self, text: &str) -> Option<String> {
@@ -1012,7 +1035,7 @@ mod mdparse {
 		}
 
 		pub fn remove_id(&self, text: &str) -> String {
-			self.id_expr.replace(text, "").to_string()
+			self.id_expr.replace(text, "").trim().to_owned()
 		}
 
 		pub fn get_wiki_links(&self, text: &str) -> HashSet<WikiLink> {
@@ -1057,6 +1080,105 @@ mod mdparse {
 			match self.split_contents_at_backlinks_heading(text) {
 				Some((_, backlinks)) => Some(backlinks[self.backlinks_heading.len()..].trim()),
 				None => None,
+			}
+		}
+	}
+
+	/// Remove leading UTF-8 BOM, if exists
+	fn trim_bom<'a>(text: &'a str) -> &'a str {
+		if text.starts_with('\u{feff}') {
+			// Remove BOM, which is exactly 3 bytes
+			&text[3..]
+		} else {
+			text
+		}
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use crate::mdparse::WikiLink;
+		use crate::mdparse::{trim_bom, NoteParser};
+		use std::fs;
+
+		#[test]
+		fn bom() {
+			let with_bom = fs::read_to_string(r"testdata/Markdown1.md").unwrap();
+			let without_bom = trim_bom(&with_bom);
+
+			assert!(with_bom.starts_with('\u{feff}'));
+			assert!(!without_bom.starts_with('\u{feff}'));
+			assert_eq!(with_bom.chars().count(), 1 + without_bom.chars().count());
+		}
+
+		#[test]
+		fn strip_attributes() {
+			assert_eq!(
+				NoteParser::strip_heading_attributes("My heading"),
+				"My heading"
+			);
+			assert_eq!(
+				NoteParser::strip_heading_attributes("My heading {#foo}"),
+				"My heading "
+			);
+
+			// Only remove {} at the end!
+			assert_eq!(
+				NoteParser::strip_heading_attributes("{-} My heading"),
+				"{-} My heading"
+			);
+
+			assert_eq!(
+				NoteParser::strip_heading_attributes("My }{ heading"),
+				"My }{ heading"
+			);
+		}
+
+		#[test]
+		fn parse_md1() {
+			let text = fs::read_to_string(r"testdata/Markdown1.md").unwrap();
+			let parser = NoteParser::new(
+				r"\d{12,14}",
+				"## Links to this note {#backlinks .unnumbered}",
+			)
+			.unwrap();
+			let data = parser.parse(&text);
+
+			let expected_ids = [
+				"123123123123",
+				"1111111111110",
+				"1234567891011",
+				"1212121212121",
+				"9900021212121",
+			];
+
+			assert_eq!(data.ids.len(), expected_ids.len());
+			for (expected, actual) in expected_ids.iter().zip(data.ids.iter()) {
+				assert_eq!(actual, expected);
+			}
+
+			let expected_titles = [
+				"Markdown: A markup language",
+				"Markdown Test File",
+				"This is a heading inside a comment",
+				"Then another heading",
+			];
+
+			assert_eq!(data.titles.len(), expected_titles.len());
+			for (expected, actual) in expected_titles.iter().zip(data.titles.iter()) {
+				assert_eq!(actual, expected);
+			}
+
+			let expected_links = [
+				WikiLink::FileName("Related note1".to_owned()),
+				WikiLink::FileName("Related note2".to_owned()),
+				WikiLink::Id("1234567891011".to_owned()),
+				WikiLink::FileName("should this count as a link".to_owned()),
+				WikiLink::FileName("One last link".to_owned()),
+			];
+
+			assert_eq!(data.links.len(), expected_links.len());
+			for (expected, actual) in expected_links.iter().zip(data.links.iter()) {
+				assert_eq!(actual, expected);
 			}
 		}
 	}

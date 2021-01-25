@@ -1,5 +1,5 @@
 ---
-- related: [[20210104073402]], not parsed in Yaml
+- related: [[20210104073402]], parsed in Yaml now
 ...
 
 - [ ] check
