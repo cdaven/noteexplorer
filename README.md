@@ -31,7 +31,7 @@ SUBCOMMANDS:
     list-isolated        Prints a list of notes with no incoming or outgoing links
     list-sinks           Prints a list of notes with no outgoing links
     list-sources         Prints a list of notes with no incoming links
-    list-todos           Prints a list of TODOs
+    list-tasks           Prints a list of tasks
     remove-backlinks     Removes backlink sections in all notes
     update-backlinks     Updates backlink sections in all notes
     update-filenames     Updates note filenames with ID and title
@@ -71,11 +71,7 @@ The heading that is expected or will be inserted before backlinks in notes.
 
 Unfortunately, it seems that you cannot use "--" as part of the heading, since the arguments parser will think this is another option.
 
-Everything from this heading on, will be ignored by NoteExplorer when reading. So this affects the amount of words and links in the notes.
-
-You should not write anything after this heading in your notes, as it will be removed when updating backlinks.
-
-Note that in order to change this heading for existing notes, you must first run the subcommand `remove-backlinks` and specify the current heading. Otherwise, you will get double backlink sections!
+Note that in order to change this heading for existing notes, you must first run the subcommand `remove-backlinks` and specify the current heading. Otherwise, you will get multiple backlink sections!
 
 ### Subcommands
 
@@ -109,11 +105,11 @@ Lists all source notes, meaning notes with no incoming links, but at least one o
 
 (The term is from graph theory.)
 
-#### list-todos
+#### list-tasks
 
-Alias: `todos`
+Alias: `tasks`
 
-Lists all open todos from all notes. A todo is a list item that starts with `- [ ] `. When you tick the box (`[x]`), the item will not show up the next time you list todos.
+Lists all open tasks from all notes. A task is a list item that starts with `- [ ] `. When you tick the box (`[x]`), the item will not show up in the list anymore.
 
 See e.g. [TODO.md](https://github.com/todo-md/todo-md).
 
@@ -121,15 +117,13 @@ See e.g. [TODO.md](https://github.com/todo-md/todo-md).
 
 Removes backlinks from all notes, using the heading from the `--backlinks-heading` argument.
 
-Note that everything after the backlinks heading will be removed.
-
 #### update-backlinks
 
 Alias: `backlinks`
 
-Updates backlinks in notes, using the heading from the `--backlinks-heading` argument.
+Updates backlinks in notes, following the heading from the `--backlinks-heading` argument.
 
-Note that everything after the backlinks heading will be removed.
+Read more about [Backlink sections in notes](https://github.com/cdaven/noteexplorer/wiki/Backlinks-sections-in-notes)
 
 #### update-filenames
 
@@ -198,7 +192,13 @@ The `PATH` given to NoteExplorer is the root directory. All subdirectories will 
 
 If two or more notes use the same ID, you will get a warning.
 
-Yet another limitation: NoteExplorer can only read files in UTF-8.
+Yet another limitation: NoteExplorer can only read files in UTF-8, with or without byte order mark (BOM).
+
+### Limitations to the Markdown parser
+
+The Markdown parser is simple, and will not honor HTML comments.
+
+If you use styling in the headings (e.g. **bold** or _italic_), it will not be stripped.
 
 ## Background
 
