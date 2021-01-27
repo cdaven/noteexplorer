@@ -118,25 +118,26 @@ mod innerm {
 
 	impl Note {
 		fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
-			let mut data = parser.parse(&file.content);
+			let data = parser.parse(&file.content);
 
-			if let Some(id) = parser.get_id(&file.stem) {
-				// Insert filename id at the top if the list of ids
-				data.ids.insert(0, id);
-			}
+			let id = match parser.get_id(&file.stem) {
+				// Prefer ID from filename if it exists
+				Some(file_id) => Some(file_id),
+				None => data.ids.into_iter().next(),
+			};
 
-			let filename_title = parser.remove_id(&file.stem);
-			if !filename_title.is_empty() {
-				// Add filename title at the end of the list of titles
-				data.titles.push(filename_title);
-			}
-
-			let title = data.titles.into_iter().next().unwrap_or_default();
+			let title = if !data.titles.is_empty() {
+				// Prefer title from contents
+				data.titles.into_iter().next().unwrap_or_default()
+			} else {
+				// Fall back to filename minus ID
+				parser.remove_id(&file.stem)
+			};
 
 			Note {
-				id: data.ids.into_iter().next(),
+				id,
 				title_lower: title.to_lowercase(),
-				title: title,
+				title,
 				links: HashSet::from_iter(data.links),
 				todos: data.tasks,
 				backlinks_start: data.backlinks_start,
@@ -222,11 +223,11 @@ mod innerm {
 			Note::get_wikilink(&self.id, &self.title, &self.file.stem)
 		}
 
-		fn get_wikilink(id: &Option<String>, title: &String, file_stem: &String) -> String {
+		fn get_wikilink(id: &Option<String>, title: &str, file_stem: &str) -> String {
 			// Link either to ID or filename
-			let link_target: &String = if let Some(i) = id { i } else { file_stem };
+			let link_target = if let Some(i) = id { i } else { file_stem };
 
-			let link_desc: &String = if title == link_target {
+			let link_desc = if title == link_target {
 				// No need for a link description that matches the link target
 				// (E.g. "[[Filename link]] Filename link")
 				&EMPTY_STRING
@@ -965,7 +966,6 @@ mod mdparse {
 			let mut ids = Vec::new();
 			let mut links = Vec::new();
 			let mut tasks = Vec::new();
-			let mut backlinks = Vec::new();
 			let mut backlinks_start: Option<usize> = None;
 			let mut backlinks_end: Option<usize> = None;
 
@@ -985,8 +985,7 @@ mod mdparse {
 				pos += pos_and_line.unwrap().0;
 				let ln = pos_and_line.unwrap().1;
 
-				// TODO: Remove?
-				assert_eq!(ln, &text[pos..pos + ln.len()]);
+				debug_assert_eq!(ln, &text[pos..pos + ln.len()]);
 
 				// For cases where we don't want to advance to the next line
 				pos_and_line = Some((0, ln));
@@ -1037,12 +1036,12 @@ mod mdparse {
 						} else if ln == self.backlinks_heading {
 							backlinks_start = Some(pos);
 							state = ParseState::BackLinks;
-						} else if (ln.starts_with("    ") || ln.starts_with('\t'))
-							&& !INDENTED_LIST_EXPR.is_match(ln)
+						} else if ln == "***"
+							|| ln == "---" || ln == "___"
+							|| ((ln.starts_with("    ") || ln.starts_with('\t'))
+								&& !INDENTED_LIST_EXPR.is_match(ln))
 						{
-							// Ignore code blocks (not indented list items)
-						} else if ln == "***" || ln == "---" || ln == "___" {
-							// Ignore line-breaks
+							// Ignore code blocks (not indented list items) and line-breaks
 						} else if ln.starts_with(&codeblock_token_1) {
 							state = ParseState::CodeBlock(&codeblock_token_1);
 						} else if ln.starts_with(&codeblock_token_2) {
@@ -1068,9 +1067,7 @@ mod mdparse {
 						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::BackLinks => {
-						if let Some(capture) = BACKLINK_EXPR.captures(ln) {
-							// TODO: Why capture backlinks, nobody cares?
-							backlinks.push(capture[1].to_owned());
+						if BACKLINK_EXPR.is_match(ln) {
 							pos_and_line = find_next_line(&text[pos..]);
 						} else {
 							// List of backlinks is broken, what now?
@@ -1096,7 +1093,7 @@ mod mdparse {
 			if let Some(start) = text.find('{') {
 				if let Some(end) = text.rfind('}') {
 					if end == text.len() - 1 {
-						return (text[..start].to_string() + &text[end + 1..]).to_owned();
+						return text[..start].to_string() + &text[end + 1..];
 					}
 				}
 			}
@@ -1140,12 +1137,10 @@ mod mdparse {
 	}
 
 	/// Remove leading UTF-8 BOM, if exists
-	fn trim_bom<'a>(text: &'a str) -> (usize, &str) {
-		if text.starts_with('\u{feff}') {
-			// Remove BOM, which is exactly 3 bytes
-			(3, &text[3..])
-		} else {
-			(0, text)
+	fn trim_bom(text: &str) -> (usize, &str) {
+		match text.strip_prefix('\u{feff}') {
+			None => (0, text),
+			Some(trimmed) => (3, trimmed),
 		}
 	}
 
@@ -1159,7 +1154,7 @@ mod mdparse {
 
 	/// Find byte position of first line, or None.
 	/// Also returns string slice of that line.
-	fn find_first_line<'a>(text: &'a str) -> Option<(usize, &'a str)> {
+	fn find_first_line(text: &str) -> Option<(usize, &str)> {
 		let mut skip_bytes = 0;
 
 		for char in text.chars() {
@@ -1182,7 +1177,7 @@ mod mdparse {
 	}
 
 	/// Find byte position of next line, or None
-	fn find_next_line<'a>(text: &'a str) -> Option<(usize, &'a str)> {
+	fn find_next_line(text: &str) -> Option<(usize, &str)> {
 		match find_newline(&text) {
 			None => None,
 			Some(pos) => match find_first_line(&text[pos..]) {
