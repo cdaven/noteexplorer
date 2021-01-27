@@ -97,7 +97,7 @@ mod innerm {
 		title_lower: String,
 		id: Option<String>,
 		links: HashSet<WikiLink>,
-		todos: Vec<String>,
+		tasks: Vec<String>,
 		backlinks_start: Option<usize>,
 		backlinks_end: Option<usize>,
 		parser: Rc<NoteParser>,
@@ -139,7 +139,7 @@ mod innerm {
 				title_lower: title.to_lowercase(),
 				title,
 				links: HashSet::from_iter(data.links),
-				todos: data.tasks,
+				tasks: data.tasks,
 				backlinks_start: data.backlinks_start,
 				backlinks_end: data.backlinks_end,
 				parser,
@@ -511,15 +511,15 @@ mod innerm {
 			notes
 		}
 
-		pub fn get_todos(&self) -> Vec<(NoteMeta, Vec<String>)> {
-			let mut todos = Vec::new();
+		pub fn get_tasks(&self) -> Vec<(NoteMeta, Vec<String>)> {
+			let mut tasks = Vec::new();
 			let mut f = |note: &Note| {
-				if !note.todos.is_empty() {
-					todos.push((note.get_meta(), note.todos.clone()));
+				if !note.tasks.is_empty() {
+					tasks.push((note.get_meta(), note.tasks.clone()));
 				}
 			};
 			self.visit_notes(&mut f);
-			todos
+			tasks
 		}
 
 		pub fn remove_backlinks(&self) -> Vec<NoteMeta> {
@@ -712,19 +712,19 @@ mod innerm {
 		}
 
 		#[test]
-		fn todo_parser() {
+		fn task_parser() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Todos.md")).unwrap(),
+				NoteFile::new(&path::PathBuf::from(r"testdata/Tasks.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
-			assert!(note.todos.contains(&"Don't forget to remember".to_string()));
-			assert!(note.todos.contains(&"Buy milk!".to_string()));
-			assert!(note.todos.contains(&"Nested".to_string()));
-			assert!(note.todos.contains(&"Tabbed with [[link]]".to_string()));
-			assert!(note.todos.contains(&"Final line".to_string()));
-			assert_eq!(note.todos.len(), 5);
+			assert!(note.tasks.contains(&"Don't forget to remember".to_string()));
+			assert!(note.tasks.contains(&"Buy milk!".to_string()));
+			assert!(note.tasks.contains(&"Nested".to_string()));
+			assert!(note.tasks.contains(&"Tabbed with [[link]]".to_string()));
+			assert!(note.tasks.contains(&"Final line".to_string()));
+			assert_eq!(note.tasks.len(), 5);
 
 			assert!(note
 				.links
@@ -1405,7 +1405,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 		"list-sources" => print_sources(&notes),
 		"list-sinks" => print_sinks(&notes),
 		"list-isolated" => print_isolated(&notes),
-		"list-todos" => print_todos(&notes),
+		"list-tasks" => print_tasks(&notes),
 		"remove-backlinks" => remove_backlinks(&notes),
 		"update-backlinks" => update_backlinks(&notes),
 		"update-filenames" => update_filenames(&notes)?,
@@ -1434,17 +1434,17 @@ fn print_stats(note_collection: &NoteCollection) {
 	println!("- Wikilinks: {}", note_collection.count_links());
 }
 
-fn print_todos(note_collection: &NoteCollection) {
-	let todos = note_collection.get_todos();
-	let num_todos: usize = todos.iter().map(|(_, t)| t.len()).sum();
-	println!("# To-do\n");
-	println!("There are {} tasks on your to-do list", num_todos);
+fn print_tasks(note_collection: &NoteCollection) {
+	let tasks = note_collection.get_tasks();
+	let num_tasks: usize = tasks.iter().map(|(_, t)| t.len()).sum();
+	println!("# Tasks\n");
+	println!("There are {} tasks in your notes", num_tasks);
 
-	for (note, tdos) in todos {
+	for (note, note_tasks) in tasks {
 		println!("\n## {}\n", note.get_wikilink_to());
 
-		for todo in tdos {
-			println!("- [ ] {}", todo);
+		for task in note_tasks {
+			println!("- [ ] {}", task);
 		}
 	}
 }

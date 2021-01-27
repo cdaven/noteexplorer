@@ -61,9 +61,9 @@ fn main() {
 				.about("Prints a list of notes with no incoming links"),
 		)
 		.subcommand(
-			SubCommand::with_name("list-todos")
-				.aliases(&["todo", "todos"])
-				.about("Prints a list of TODOs"),
+			SubCommand::with_name("list-tasks")
+				.aliases(&["tasks", "todos"])
+				.about("Prints a list of tasks"),
 		)
 		.subcommand(
 			SubCommand::with_name("update-backlinks")
