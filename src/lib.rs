@@ -970,8 +970,8 @@ mod mdparse {
 			let mut backlinks_end: Option<usize> = None;
 
 			// Two ways to start and end code blocks
-			let codeblock_token_1: String = String::from("```");
-			let codeblock_token_2: String = String::from("~~~");
+			let codeblock_token_1 = "```".to_owned();
+			let codeblock_token_2 = "~~~".to_owned();
 
 			let mut state = ParseState::Initial;
 			let (mut pos, _) = trim_bom(text);
@@ -1000,10 +1000,10 @@ mod mdparse {
 						}
 					}
 					ParseState::Yaml => {
-						if ln.starts_with('#') {
-							// Ignore comments
-						} else if ln.starts_with("---") || ln.starts_with("...") {
+						if ln.starts_with("---") || ln.starts_with("...") {
 							state = ParseState::Regular;
+						} else if ln.starts_with('#') {
+							// Ignore comments
 						} else {
 							if ln.chars().count() > 7 {
 								if let Some(capture) = YAML_TITLE_EXPR.captures(ln) {
@@ -1020,7 +1020,9 @@ mod mdparse {
 						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::Regular => {
-						if ln.starts_with("# ") && ln.chars().count() > 2 {
+						if ln.len() < 4 {
+							// Skip lines with 3 or fewer characters
+						} else if ln.starts_with("# ") {
 							titles.push(
 								// Remove {.attributes} and trailing # characters and spaces
 								// See https://pandoc.org/MANUAL.html#pandocs-markdown
@@ -1036,10 +1038,8 @@ mod mdparse {
 						} else if ln == self.backlinks_heading {
 							backlinks_start = Some(pos);
 							state = ParseState::BackLinks;
-						} else if ln == "***"
-							|| ln == "---" || ln == "___"
-							|| ((ln.starts_with("    ") || ln.starts_with('\t'))
-								&& !INDENTED_LIST_EXPR.is_match(ln))
+						} else if (ln.starts_with("    ") || ln.starts_with('\t'))
+							&& !INDENTED_LIST_EXPR.is_match(ln)
 						{
 							// Ignore code blocks (not indented list items) and line-breaks
 						} else if ln.starts_with(&codeblock_token_1) {
@@ -1144,10 +1144,12 @@ mod mdparse {
 		}
 	}
 
+	#[inline]
 	fn is_newline(c: char) -> bool {
 		c == '\r' || c == '\n'
 	}
 
+	#[inline]
 	fn find_newline(text: &str) -> Option<usize> {
 		text.find(&['\r', '\n'][..])
 	}
