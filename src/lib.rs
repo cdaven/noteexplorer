@@ -98,7 +98,8 @@ mod innerm {
 		id: Option<String>,
 		links: HashSet<WikiLink>,
 		todos: Vec<String>,
-		backlinks: Vec<String>,
+		backlinks_start: Option<usize>,
+		backlinks_end: Option<usize>,
 		parser: Rc<NoteParser>,
 	}
 	// Use path as unique identifier for notes
@@ -130,9 +131,6 @@ mod innerm {
 				data.titles.push(filename_title);
 			}
 
-			// TODO: Check for duplicate IDs and warn
-			// TODO: Chek for duplicate titles and warn
-
 			let title = data.titles.into_iter().next().unwrap_or_default();
 
 			Note {
@@ -141,20 +139,68 @@ mod innerm {
 				title: title,
 				links: HashSet::from_iter(data.links),
 				todos: data.tasks,
-				backlinks: data.backlinks,
+				backlinks_start: data.backlinks_start,
+				backlinks_end: data.backlinks_end,
 				parser,
 				file,
 			}
 		}
 
-		fn get_contents_without_backlinks(&self) -> &str {
-			self.parser
-				.get_contents_without_backlinks(&self.file.content)
+		fn has_backlinks(&self) -> bool {
+			self.backlinks_start.is_some()
 		}
 
+		/// Returns note contents with the backlinks section left out.
+		fn get_contents_without_backlinks(&self) -> String {
+			if let Some(start) = self.backlinks_start {
+				let end = self
+					.backlinks_end
+					.unwrap_or_else(|| self.file.content.len());
+
+				let new_len = start + self.file.content.len() - end;
+				let mut contents = String::with_capacity(new_len);
+				contents.push_str(&self.file.content[..start]);
+				if end < self.file.content.len() {
+					contents.push_str(&self.file.content[end..]);
+				}
+				assert_eq!(contents.len(), new_len);
+				contents
+			} else {
+				self.file.content.to_owned()
+			}
+		}
+
+		/// Returns note contents with the backlinks section switched or added
+		fn get_contents_with_new_backlinks(&self, heading: &str, backlinks: &str) -> String {
+			let make_contents = |before: &str, after: &str| {
+				[before.trim_end(), heading, backlinks, after]
+					.join("\n\n")
+					.trim_end()
+					.to_owned()
+			};
+
+			if let Some(start) = self.backlinks_start {
+				let end = self
+					.backlinks_end
+					.unwrap_or_else(|| self.file.content.len());
+
+				make_contents(&self.file.content[..start], &self.file.content[end..])
+			} else {
+				make_contents(&self.file.content, &"")
+			}
+		}
+
+		/// Returns backlinks section without the heading, trimmed
 		fn get_backlinks_section_without_heading(&self) -> Option<&str> {
-			self.parser
-				.get_backlinks_section_without_heading(&self.file.content)
+			if let Some(start) = self.backlinks_start {
+				let end = self
+					.backlinks_end
+					.unwrap_or_else(|| self.file.content.len());
+
+				Some(&self.file.content[start + self.parser.backlinks_heading.len()..end].trim())
+			} else {
+				None
+			}
 		}
 
 		fn has_outgoing_links(&self) -> bool {
@@ -475,26 +521,25 @@ mod innerm {
 			todos
 		}
 
-		pub fn remove_backlinks(&self) -> i32 {
-			let mut count = 0;
+		pub fn remove_backlinks(&self) -> Vec<NoteMeta> {
+			let mut notes = Vec::new();
 			let mut f = |note: &Note| {
-				if let Some((content, _)) = note
-					.parser
-					.split_contents_at_backlinks_heading(&note.file.content)
-				{
-					if let Err(e) = NoteFile::save(&note.file.path, &content) {
+				if note.has_backlinks() {
+					if let Err(e) =
+						NoteFile::save(&note.file.path, &note.get_contents_without_backlinks())
+					{
 						eprintln!("Error while saving note file {}: {}", note.file.path, e);
 					} else {
-						count += 1;
+						notes.push(note.get_meta());
 					}
 				}
 			};
 			self.visit_notes(&mut f);
-			count
+			notes
 		}
 
-		pub fn update_backlinks(&self) -> i32 {
-			let mut count = 0;
+		pub fn update_backlinks(&self) -> Vec<NoteMeta> {
+			let mut notes = Vec::new();
 			let mut f = |note: &Note| {
 				let mut incoming_links: Vec<Rc<Note>> =
 					self.get_incoming_links(note).into_iter().collect();
@@ -512,25 +557,27 @@ mod innerm {
 				let current_section = note
 					.get_backlinks_section_without_heading()
 					.unwrap_or_default();
+
 				if current_section != new_section {
 					let new_contents = if !new_section.is_empty() {
 						// Add or update backlinks
-						note.get_contents_without_backlinks().trim_end().to_string()
-							+ "\n\n" + &note.parser.backlinks_heading
-							+ "\n\n" + &new_section
+						note.get_contents_with_new_backlinks(
+							&note.parser.backlinks_heading,
+							&new_section,
+						)
 					} else {
 						// Remove backlinks
-						note.get_contents_without_backlinks().to_string()
+						note.get_contents_without_backlinks()
 					};
 					if let Err(e) = NoteFile::save(&note.file.path, &new_contents) {
 						eprintln!("Error while saving note file {}: {}", note.file.path, e);
 					} else {
-						count += 1;
+						notes.push(note.get_meta());
 					}
 				}
 			};
 			self.visit_notes(&mut f);
-			count
+			notes
 		}
 
 		pub fn get_mismatched_filenames(&self) -> Vec<(NoteMeta, String)> {
@@ -727,46 +774,76 @@ mod innerm {
 			// All links in this file is in the backlinks section
 			assert_eq!(note.links.len(), 0);
 
-			// TODO: It seems this test is the only place we use note.backlinks!
-			let backlinks = note.backlinks;
-			assert!(backlinks.contains(&"[[§An outline note]]".to_string()));
-			assert!(backlinks.contains(&"[[20201012145848]] Another note".to_string()));
-			assert!(backlinks.contains(&"Not a link".to_string()));
-			assert_eq!(backlinks.len(), 3);
+			// TODO: Add test, or are we done?
 		}
 
 		#[test]
-		fn backlinks_heading_parser() {
+		fn replace_backlinks() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
 				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
-			if let Some((c1, c2)) = parser.split_contents_at_backlinks_heading(&note.file.content) {
-				assert_eq!(c1, "# Backlinks test case\r\n\r\nSome note text\r\n\r\n");
-				assert!(c2.starts_with(&parser.backlinks_heading));
-			} else {
-				panic!("split_contents_at_backlinks_heading() failed");
-			}
+			let c1 = note.get_contents_without_backlinks();
+			assert_eq!(
+				c1,
+				"# Backlinks test case\r\n\r\nSome note text\r\n\r\n<!-- Here be dragons -->\r\n"
+			);
 
-			if let Some(s) = parser.get_backlinks_section_without_heading(&note.file.content) {
-				assert!(s.starts_with("- [["));
-			} else {
-				panic!("get_backlinks_section_without_heading() failed");
-			}
+			let c2 = note.get_backlinks_section_without_heading().unwrap();
+			assert_eq!(
+				c2.trim(),
+				"- [[§An outline note]]\r\n- [[20201012145848]] Another note\r\n* Not a link"
+			);
 
-			if let Some(_) =
-				parser.split_contents_at_backlinks_heading(&"# Just a heading\r\nNo backlinks ...")
-			{
-				panic!("split_contents_at_backlinks_heading() failed");
-			}
+			let c3 = note
+				.get_contents_with_new_backlinks("## Links to this note", "- [[The one and only]]");
+			assert_eq!(c3, "# Backlinks test case\r\n\r\nSome note text\n\n## Links to this note\n\n- [[The one and only]]\n\n<!-- Here be dragons -->");
+		}
 
-			if let Some(_) = parser
-				.get_backlinks_section_without_heading(&"# Just a heading\r\nNo backlinks ...")
-			{
-				panic!("get_backlinks_section_without_heading() failed");
-			}
+		#[test]
+		fn add_backlinks1() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/One-liner.md")).unwrap(),
+				Rc::clone(&parser),
+			);
+
+			let c1 = note.get_contents_without_backlinks();
+			assert_eq!(c1, "# Just a Heading");
+
+			assert!(note.get_backlinks_section_without_heading().is_none());
+
+			let c3 = note.get_contents_with_new_backlinks(
+				"## Links to this note",
+				"- [[Link one]]\n- [[Link two]]",
+			);
+			assert_eq!(
+				c3,
+				"# Just a Heading\n\n## Links to this note\n\n- [[Link one]]\n- [[Link two]]"
+			);
+		}
+
+		#[test]
+		fn add_backlinks2() {
+			let parser = Rc::new(get_default_parser());
+			let note = Note::new(
+				NoteFile::new(&path::PathBuf::from(r"testdata/12345678901 Test Note 1.md"))
+					.unwrap(),
+				Rc::clone(&parser),
+			);
+
+			assert!(note.get_backlinks_section_without_heading().is_none());
+
+			let c3 = note.get_contents_with_new_backlinks(
+				"## Links to this note",
+				"- [[Link one]]\n- [[Link two]]",
+			);
+			assert_eq!(
+				c3,
+				"This is the ID: 112233445566\n\n## Links to this note\n\n- [[Link one]]\n- [[Link two]]"
+			);
 		}
 
 		#[test]
@@ -816,7 +893,6 @@ mod mdparse {
 	use crate::innerm::{NoteFile, WikiLink};
 	use lazy_static::*;
 	use regex::Regex;
-	use std::collections::HashSet;
 
 	lazy_static! {
 		static ref YAML_TITLE_EXPR: Regex =
@@ -840,6 +916,7 @@ mod mdparse {
 		static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A\s+[-+*]\s.+\z").unwrap();
 	}
 
+	#[derive(Debug)]
 	enum ParseState<'a> {
 		Initial,
 		Yaml,
@@ -854,7 +931,8 @@ mod mdparse {
 		pub ids: Vec<String>,
 		pub links: Vec<WikiLink>,
 		pub tasks: Vec<String>,
-		pub backlinks: Vec<String>,
+		pub backlinks_start: Option<usize>,
+		pub backlinks_end: Option<usize>,
 	}
 
 	#[derive(Debug)]
@@ -883,43 +961,41 @@ mod mdparse {
 		}
 
 		pub fn parse(&self, text: &str) -> NoteData {
-			let mut state = ParseState::Initial;
-			let mut lines = trim_bom(text).lines();
-			let mut line = lines.next();
-
 			let mut titles = Vec::new();
 			let mut ids = Vec::new();
 			let mut links = Vec::new();
 			let mut tasks = Vec::new();
 			let mut backlinks = Vec::new();
+			let mut backlinks_start: Option<usize> = None;
+			let mut backlinks_end: Option<usize> = None;
 
 			// Two ways to start and end code blocks
 			let codeblock_token_1: String = String::from("```");
 			let codeblock_token_2: String = String::from("~~~");
 
-			// TODO: Instead of splitting on newline, maybe should advance until the next line?
-			// Like we have a position in the chars() array, and a slice that contains the current line.
-			// When advancing, we "eat" all newline characters straight away, and count them!
-			// Then we can save the exact position in the note for e.g. where the backlinks section starts (and ends)
+			let mut state = ParseState::Initial;
+			let (mut pos, _) = trim_bom(text);
+			let mut pos_and_line = find_first_line(&text[pos..]);
 
 			loop {
-				if line.is_none() {
+				if pos_and_line.is_none() {
 					break;
 				}
 
-				let ln = line.unwrap();
-				if ln.is_empty() {
-					// Always ignore empty lines
-					line = lines.next();
-					continue;
-				}
-				let ln_len = ln.chars().count();
+				pos += pos_and_line.unwrap().0;
+				let ln = pos_and_line.unwrap().1;
+
+				// TODO: Remove?
+				assert_eq!(ln, &text[pos..pos + ln.len()]);
+
+				// For cases where we don't want to advance to the next line
+				pos_and_line = Some((0, ln));
 
 				match state {
 					ParseState::Initial => {
 						if ln.starts_with("---") {
 							state = ParseState::Yaml;
-							line = lines.next();
+							pos_and_line = find_next_line(&text[pos..]);
 						} else {
 							state = ParseState::Regular;
 						}
@@ -930,7 +1006,7 @@ mod mdparse {
 						} else if ln.starts_with("---") || ln.starts_with("...") {
 							state = ParseState::Regular;
 						} else {
-							if ln_len > 7 {
+							if ln.chars().count() > 7 {
 								if let Some(capture) = YAML_TITLE_EXPR.captures(ln) {
 									titles.push(capture[1].to_owned());
 								}
@@ -942,10 +1018,10 @@ mod mdparse {
 								links.extend(self.get_wiki_links(ln));
 							}
 						}
-						line = lines.next();
+						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::Regular => {
-						if ln.starts_with("# ") && ln_len > 2 {
+						if ln.starts_with("# ") && ln.chars().count() > 2 {
 							titles.push(
 								// Remove {.attributes} and trailing # characters and spaces
 								// See https://pandoc.org/MANUAL.html#pandocs-markdown
@@ -959,6 +1035,7 @@ mod mdparse {
 								ids.push(capture[1].to_owned());
 							}
 						} else if ln == self.backlinks_heading {
+							backlinks_start = Some(pos);
 							state = ParseState::BackLinks;
 						} else if (ln.starts_with("    ") || ln.starts_with('\t'))
 							&& !INDENTED_LIST_EXPR.is_match(ln)
@@ -981,21 +1058,23 @@ mod mdparse {
 								tasks.extend(self.get_task(ln));
 							}
 						}
-						line = lines.next();
+						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::CodeBlock(token) => {
 						if ln.starts_with(token) {
 							// Found end token
 							state = ParseState::Regular;
 						}
-						line = lines.next();
+						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::BackLinks => {
 						if let Some(capture) = BACKLINK_EXPR.captures(ln) {
+							// TODO: Why capture backlinks, nobody cares?
 							backlinks.push(capture[1].to_owned());
-							line = lines.next();
+							pos_and_line = find_next_line(&text[pos..]);
 						} else {
 							// List of backlinks is broken, what now?
+							backlinks_end = Some(pos);
 							state = ParseState::Regular;
 						}
 					}
@@ -1007,7 +1086,8 @@ mod mdparse {
 				ids,
 				links,
 				tasks,
-				backlinks,
+				backlinks_start,
+				backlinks_end,
 			}
 		}
 
@@ -1038,14 +1118,14 @@ mod mdparse {
 			self.id_expr.replace(text, "").trim().to_owned()
 		}
 
-		pub fn get_wiki_links(&self, text: &str) -> HashSet<WikiLink> {
-			let mut links = HashSet::new();
+		pub fn get_wiki_links(&self, text: &str) -> Vec<WikiLink> {
+			let mut links = Vec::new();
 			for capture in WIKILINK_EXPR.captures_iter(&text) {
 				let link = capture[2].to_string();
 				if self.is_id(&link) {
-					links.insert(WikiLink::Id(link));
+					links.push(WikiLink::Id(link));
 				} else if !NoteFile::begins_or_ends_with_dot_or_space(&link) {
-					links.insert(WikiLink::FileName(link));
+					links.push(WikiLink::FileName(link));
 				}
 			}
 			links
@@ -1057,57 +1137,129 @@ mod mdparse {
 				Some(capture) => Some(capture[1].to_string()),
 			}
 		}
-
-		pub fn split_contents_at_backlinks_heading<'a>(
-			&self,
-			text: &'a str,
-		) -> Option<(&'a str, &'a str)> {
-			if let Some(i) = text.find(&self.backlinks_heading) {
-				Some(text.split_at(i))
-			} else {
-				None
-			}
-		}
-
-		pub fn get_contents_without_backlinks<'a>(&self, text: &'a str) -> &'a str {
-			match self.split_contents_at_backlinks_heading(text) {
-				Some((contents, _)) => contents.trim(),
-				None => text,
-			}
-		}
-
-		pub fn get_backlinks_section_without_heading<'a>(&self, text: &'a str) -> Option<&'a str> {
-			match self.split_contents_at_backlinks_heading(text) {
-				Some((_, backlinks)) => Some(backlinks[self.backlinks_heading.len()..].trim()),
-				None => None,
-			}
-		}
 	}
 
 	/// Remove leading UTF-8 BOM, if exists
-	fn trim_bom<'a>(text: &'a str) -> &'a str {
+	fn trim_bom<'a>(text: &'a str) -> (usize, &str) {
 		if text.starts_with('\u{feff}') {
 			// Remove BOM, which is exactly 3 bytes
-			&text[3..]
+			(3, &text[3..])
 		} else {
-			text
+			(0, text)
+		}
+	}
+
+	fn is_newline(c: char) -> bool {
+		c == '\r' || c == '\n'
+	}
+
+	fn find_newline(text: &str) -> Option<usize> {
+		text.find(&['\r', '\n'][..])
+	}
+
+	/// Find byte position of first line, or None.
+	/// Also returns string slice of that line.
+	fn find_first_line<'a>(text: &'a str) -> Option<(usize, &'a str)> {
+		let mut skip_bytes = 0;
+
+		for char in text.chars() {
+			if is_newline(char) {
+				skip_bytes += 1;
+			} else {
+				match find_newline(&text[skip_bytes..]) {
+					None => return Some((skip_bytes, &text[skip_bytes..])),
+					Some(pos_next_newline) => {
+						return Some((
+							skip_bytes,
+							&text[skip_bytes..pos_next_newline + skip_bytes],
+						));
+					}
+				}
+			}
+		}
+
+		None
+	}
+
+	/// Find byte position of next line, or None
+	fn find_next_line<'a>(text: &'a str) -> Option<(usize, &'a str)> {
+		match find_newline(&text) {
+			None => None,
+			Some(pos) => match find_first_line(&text[pos..]) {
+				None => None,
+				Some((num_newlines, text2)) => Some((pos + num_newlines, &text2)),
+			},
 		}
 	}
 
 	#[cfg(test)]
 	mod tests {
-		use crate::mdparse::WikiLink;
-		use crate::mdparse::{trim_bom, NoteParser};
+		use crate::mdparse;
+		use crate::mdparse::{NoteParser, WikiLink};
 		use std::fs;
 
 		#[test]
-		fn bom() {
+		fn trim_bom() {
 			let with_bom = fs::read_to_string(r"testdata/Markdown1.md").unwrap();
-			let without_bom = trim_bom(&with_bom);
+			let without_bom = mdparse::trim_bom(&with_bom);
 
 			assert!(with_bom.starts_with('\u{feff}'));
-			assert!(!without_bom.starts_with('\u{feff}'));
-			assert_eq!(with_bom.chars().count(), 1 + without_bom.chars().count());
+			assert!(!without_bom.1.starts_with('\u{feff}'));
+			assert_eq!(with_bom.chars().count(), 1 + without_bom.1.chars().count());
+			assert_eq!(without_bom.0, 3);
+		}
+
+		#[test]
+		fn find_first_line() {
+			assert_eq!(mdparse::find_first_line(""), None);
+			assert_eq!(mdparse::find_first_line("\r"), None);
+			assert_eq!(mdparse::find_first_line("\n"), None);
+
+			let fl = mdparse::find_first_line("Lorem ipsum dolor sit amet").unwrap();
+			assert_eq!(fl.0, 0);
+			assert_eq!(fl.1, "Lorem ipsum dolor sit amet");
+
+			let fl = mdparse::find_first_line("Lorem ipsum dolor sit amet\r\n").unwrap();
+			assert_eq!(fl.0, 0);
+			assert_eq!(fl.1, "Lorem ipsum dolor sit amet");
+
+			let fl = mdparse::find_first_line("\r\r\n\nLorem ipsum dolor sit amet").unwrap();
+			assert_eq!(fl.0, 4);
+			assert_eq!(fl.1, "Lorem ipsum dolor sit amet");
+
+			let fl = mdparse::find_first_line("\rLorem\ripsum\ndolor\r\nsit\namet\r\n").unwrap();
+			assert_eq!(fl.0, 1);
+			assert_eq!(fl.1, "Lorem");
+
+			let fl = mdparse::find_first_line("🔥").unwrap();
+			assert_eq!(fl.0, 0);
+			assert_eq!(fl.1, "🔥");
+		}
+
+		#[test]
+		fn find_next_line() {
+			assert_eq!(mdparse::find_next_line(""), None);
+			assert_eq!(mdparse::find_next_line("\r"), None);
+			assert_eq!(mdparse::find_next_line("\n"), None);
+			assert_eq!(mdparse::find_next_line("Lorem ipsum dolor sit amet"), None);
+			assert_eq!(mdparse::find_next_line("🔥"), None);
+
+			let text = "\rLorem\ripsum\ndolor\r\nsit\namet\r\n";
+			let (ix1, s) = mdparse::find_next_line(text).unwrap();
+			assert_eq!(ix1, 1);
+			assert_eq!(s, "Lorem");
+
+			let (ix2, s) = mdparse::find_next_line(&text[ix1..]).unwrap();
+			assert_eq!(ix2, 6);
+			assert_eq!(s, "ipsum");
+
+			let (ix3, s) = mdparse::find_next_line(&text[ix1 + ix2..]).unwrap();
+			assert_eq!(ix3, 6);
+			assert_eq!(s, "dolor");
+
+			let fl = mdparse::find_next_line("🔥\n🔥\n").unwrap();
+			assert_eq!(fl.0, 5);
+			assert_eq!(fl.1, "🔥");
 		}
 
 		#[test]
@@ -1350,13 +1502,17 @@ fn print_broken_links(note_collection: &NoteCollection) {
 }
 
 fn remove_backlinks(note_collection: &NoteCollection) {
-	let num_removed = note_collection.remove_backlinks();
-	println!("Removed backlinks section from {} notes", num_removed);
+	let removed = note_collection.remove_backlinks();
+	println!("Removed backlinks section from {} notes", removed.len());
 }
 
 fn update_backlinks(note_collection: &NoteCollection) {
-	let num_updated = note_collection.update_backlinks();
-	println!("Updated backlinks section in {} notes", num_updated);
+	let updated = note_collection.update_backlinks();
+	println!("Updated backlinks section in {} notes", updated.len());
+
+	for note in updated {
+		println!("- {}", note.get_wikilink_to());
+	}
 }
 
 fn update_filenames(note_collection: &NoteCollection) -> Result<(), Box<dyn Error>> {

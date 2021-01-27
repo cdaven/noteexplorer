@@ -7,3 +7,5 @@ Some note text
 - [[§An outline note]]
 - [[20201012145848]] Another note
 * Not a link
+
+<!-- Here be dragons -->
