@@ -73,10 +73,11 @@ mod innerm {
 			if filename.is_empty() {
 				return false;
 			}
-			let mut chars = filename.chars();
-			let first_char = chars.next().unwrap();
-			let last_char = chars.last().unwrap();
-			first_char == ' ' || first_char == '.' || last_char == ' ' || last_char == '.'
+			let chars = filename.as_bytes();
+			chars[0] == b' '
+				|| chars[0] == b'.'
+				|| chars[chars.len() - 1] == b' '
+				|| chars[chars.len() - 1] == b'.'
 		}
 
 		pub fn save(path: &str, contents: &str) -> io::Result<()> {
@@ -708,6 +709,16 @@ mod innerm {
 			for expected_link in &expected_links {
 				assert!(note.links.contains(expected_link));
 			}
+
+			let unexpected_links = vec![
+				WikiLink::FileName("Inside Fenced Code Block".to_owned()),
+				WikiLink::FileName("Also fenced".to_owned()),
+			];
+
+			for unexpected_link in &unexpected_links {
+				assert!(!note.links.contains(unexpected_link));
+			}
+
 			assert_eq!(note.links.len(), expected_links.len());
 		}
 
@@ -915,6 +926,9 @@ mod mdparse {
 		static ref TASK_EXPR: Regex = Regex::new(r"\A\s*[-+*]\s+\[ \]\s+(.+?)\z").unwrap();
 		static ref BACKLINK_EXPR: Regex = Regex::new(r"\A[-+*]\s*(.*?)\z").unwrap();
 		static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A\s+[-+*]\s.+\z").unwrap();
+		// Two ways to start and end code blocks
+		static ref CODEBLOCK_TOKEN_1: &'static str = "```";
+		static ref CODEBLOCK_TOKEN_2: &'static str = "~~~";
 	}
 
 	#[derive(Debug)]
@@ -969,43 +983,36 @@ mod mdparse {
 			let mut backlinks_start: Option<usize> = None;
 			let mut backlinks_end: Option<usize> = None;
 
-			// Two ways to start and end code blocks
-			let codeblock_token_1 = "```".to_owned();
-			let codeblock_token_2 = "~~~".to_owned();
-
 			let mut state = ParseState::Initial;
-			let (mut pos, _) = trim_bom(text);
-			let mut pos_and_line = find_first_line(&text[pos..]);
+			let mut start_end = find_first_line(&text, starts_with_bom(&text));
 
 			loop {
-				if pos_and_line.is_none() {
+				if start_end.is_none() {
 					break;
 				}
 
-				pos += pos_and_line.unwrap().0;
-				let ln = pos_and_line.unwrap().1;
-
-				debug_assert_eq!(ln, &text[pos..pos + ln.len()]);
-
-				// For cases where we don't want to advance to the next line
-				pos_and_line = Some((0, ln));
+				let start = start_end.unwrap().0;
+				let end = start_end.unwrap().1;
+				let ln = &text[start..end];
+				let ln_bytes = ln.as_bytes();
 
 				match state {
 					ParseState::Initial => {
 						if ln.starts_with("---") {
 							state = ParseState::Yaml;
-							pos_and_line = find_next_line(&text[pos..]);
 						} else {
+							// Parse the line again in another state
 							state = ParseState::Regular;
+							continue;
 						}
 					}
 					ParseState::Yaml => {
 						if ln.starts_with("---") || ln.starts_with("...") {
 							state = ParseState::Regular;
-						} else if ln.starts_with('#') {
+						} else if ln_bytes[0] == b'#' {
 							// Ignore comments
 						} else {
-							if ln.chars().count() > 7 {
+							if ln.len() > 7 {
 								if let Some(capture) = YAML_TITLE_EXPR.captures(ln) {
 									titles.push(capture[1].to_owned());
 								}
@@ -1013,16 +1020,16 @@ mod mdparse {
 							if let Some(capture) = self.id_expr.captures(ln) {
 								ids.push(capture[1].to_owned());
 							}
-							if ln.contains("[[") {
-								links.extend(self.get_wiki_links(ln));
+							if ln.len() > 4 && ln.contains("[[") {
+								if let Some(wl) = self.get_wiki_links(ln) {
+									links.extend(wl);
+								}
 							}
 						}
-						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::Regular => {
-						if ln.len() < 4 {
-							// Skip lines with 3 or fewer characters
-						} else if ln.starts_with("# ") {
+						// Heading 1
+						if ln_bytes.len() > 2 && ln_bytes[0] == b'#' && ln_bytes[1] == b' ' {
 							titles.push(
 								// Remove {.attributes} and trailing # characters and spaces
 								// See https://pandoc.org/MANUAL.html#pandocs-markdown
@@ -1030,52 +1037,59 @@ mod mdparse {
 									.trim_end_matches(|c| c == ' ' || c == '#')
 									.to_owned(),
 							);
-
-							// Allow ID in headings
 							if let Some(capture) = self.id_expr.captures(ln) {
 								ids.push(capture[1].to_owned());
 							}
-						} else if ln == self.backlinks_heading {
-							backlinks_start = Some(pos);
-							state = ParseState::BackLinks;
-						} else if (ln.starts_with("    ") || ln.starts_with('\t'))
+							if ln.len() > 4 && ln.contains("[[") {
+								if let Some(wl) = self.get_wiki_links(ln) {
+									links.extend(wl);
+								}
+							}
+						} else if (ln_bytes[0] == b'\t' || ln.starts_with("    "))
 							&& !INDENTED_LIST_EXPR.is_match(ln)
 						{
 							// Ignore code blocks (not indented list items) and line-breaks
-						} else if ln.starts_with(&codeblock_token_1) {
-							state = ParseState::CodeBlock(&codeblock_token_1);
-						} else if ln.starts_with(&codeblock_token_2) {
-							state = ParseState::CodeBlock(&codeblock_token_2);
+						} else if ln.starts_with(*CODEBLOCK_TOKEN_1)
+							|| ln.starts_with(*CODEBLOCK_TOKEN_2)
+						{
+							state = ParseState::CodeBlock(&ln[..3]);
+						} else if ln == self.backlinks_heading {
+							backlinks_start = Some(start);
+							state = ParseState::BackLinks;
 						} else {
 							if let Some(capture) = self.id_expr.captures(ln) {
 								ids.push(capture[1].to_owned());
 							}
-							if ln.contains("[[") {
-								links.extend(self.get_wiki_links(ln));
-							}
-							if ln.contains(" [ ] ") {
-								tasks.extend(self.get_task(ln));
+							if ln.len() > 4 && ln.contains('[') {
+								if let Some(wl) = self.get_wiki_links(ln) {
+									links.extend(wl);
+								}
+								if let Some(capture) = TASK_EXPR.captures(ln) {
+									tasks.push(capture[1].to_string());
+								}
 							}
 						}
-						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::CodeBlock(token) => {
 						if ln.starts_with(token) {
 							// Found end token
 							state = ParseState::Regular;
 						}
-						pos_and_line = find_next_line(&text[pos..]);
 					}
 					ParseState::BackLinks => {
-						if BACKLINK_EXPR.is_match(ln) {
-							pos_and_line = find_next_line(&text[pos..]);
-						} else {
-							// List of backlinks is broken, what now?
-							backlinks_end = Some(pos);
+						if !BACKLINK_EXPR.is_match(ln) {
+							// Backlinks list had ended, something else is here
+							backlinks_end = Some(start);
+
+							// Parse the line again in another state
 							state = ParseState::Regular;
+							continue;
 						}
 					}
 				}
+
+				// Parse the next line
+				start_end = find_next_line(&text, end);
 			}
 
 			NoteData {
@@ -1088,16 +1102,14 @@ mod mdparse {
 			}
 		}
 
-		pub fn strip_heading_attributes(text: &str) -> String {
-			// Remove everything between the first { and the last }
-			if let Some(start) = text.find('{') {
-				if let Some(end) = text.rfind('}') {
-					if end == text.len() - 1 {
-						return text[..start].to_string() + &text[end + 1..];
-					}
+		/// Remove Pandoc-style attributes at the end of a heading ("{#id}")
+		pub fn strip_heading_attributes(text: &str) -> &str {
+			if text.as_bytes()[text.len() - 1] == b'}' {
+				if let Some(start) = text.rfind('{') {
+					return &text[..start];
 				}
 			}
-			text.to_owned()
+			text
 		}
 
 		pub fn get_id(&self, text: &str) -> Option<String> {
@@ -1107,6 +1119,7 @@ mod mdparse {
 			}
 		}
 
+		#[inline]
 		fn is_id(&self, text: &str) -> bool {
 			self.id_expr.is_match(text)
 		}
@@ -1115,9 +1128,13 @@ mod mdparse {
 			self.id_expr.replace(text, "").trim().to_owned()
 		}
 
-		pub fn get_wiki_links(&self, text: &str) -> Vec<WikiLink> {
+		pub fn get_wiki_links(&self, text: &str) -> Option<Vec<WikiLink>> {
+			let mut captures = WIKILINK_EXPR.captures_iter(&text).peekable();
+			if captures.peek().is_none() {
+				return None;
+			}
 			let mut links = Vec::new();
-			for capture in WIKILINK_EXPR.captures_iter(&text) {
+			for capture in captures {
 				let link = capture[2].to_string();
 				if self.is_id(&link) {
 					links.push(WikiLink::Id(link));
@@ -1125,67 +1142,53 @@ mod mdparse {
 					links.push(WikiLink::FileName(link));
 				}
 			}
-			links
+			Some(links)
 		}
+	}
 
-		pub fn get_task(&self, text: &str) -> Option<String> {
-			match TASK_EXPR.captures(&text) {
-				None => None,
-				Some(capture) => Some(capture[1].to_string()),
+	/// Returns the size of the BOM if it exists
+	fn starts_with_bom(text: &str) -> usize {
+		if text.len() >= 3 && text.chars().next().unwrap() == '\u{feff}' {
+			3
+		} else {
+			0
+		}
+	}
+
+	fn find_newline(text: &str, offset: usize) -> Option<usize> {
+		let mut pos = offset;
+		for char in text[offset..].bytes() {
+			if char == b'\n' || char == b'\r' {
+				return Some(pos);
 			}
+			pos += 1;
 		}
+		None
 	}
 
-	/// Remove leading UTF-8 BOM, if exists
-	fn trim_bom(text: &str) -> (usize, &str) {
-		match text.strip_prefix('\u{feff}') {
-			None => (0, text),
-			Some(trimmed) => (3, trimmed),
-		}
-	}
-
-	#[inline]
-	fn is_newline(c: char) -> bool {
-		c == '\r' || c == '\n'
-	}
-
-	#[inline]
-	fn find_newline(text: &str) -> Option<usize> {
-		text.find(&['\r', '\n'][..])
-	}
-
-	/// Find byte position of first line, or None.
-	/// Also returns string slice of that line.
-	fn find_first_line(text: &str) -> Option<(usize, &str)> {
-		let mut skip_bytes = 0;
-
-		for char in text.chars() {
-			if is_newline(char) {
-				skip_bytes += 1;
+	/// Find byte position (start, end) of first line, or None
+	fn find_first_line(text: &str, offset: usize) -> Option<(usize, usize)> {
+		let mut pos = offset;
+		for char in text[offset..].chars() {
+			if char == '\n' || char == '\r' {
+				pos += 1;
 			} else {
-				match find_newline(&text[skip_bytes..]) {
-					None => return Some((skip_bytes, &text[skip_bytes..])),
+				match find_newline(&text, pos) {
+					None => return Some((pos, text.len())),
 					Some(pos_next_newline) => {
-						return Some((
-							skip_bytes,
-							&text[skip_bytes..pos_next_newline + skip_bytes],
-						));
+						return Some((pos, pos_next_newline));
 					}
 				}
 			}
 		}
-
 		None
 	}
 
-	/// Find byte position of next line, or None
-	fn find_next_line(text: &str) -> Option<(usize, &str)> {
-		match find_newline(&text) {
+	/// Find byte position (start, end) of next line, or None
+	fn find_next_line(text: &str, offset: usize) -> Option<(usize, usize)> {
+		match find_newline(&text, offset) {
 			None => None,
-			Some(pos) => match find_first_line(&text[pos..]) {
-				None => None,
-				Some((num_newlines, text2)) => Some((pos + num_newlines, &text2)),
-			},
+			Some(pos) => find_first_line(&text, pos),
 		}
 	}
 
@@ -1198,65 +1201,75 @@ mod mdparse {
 		#[test]
 		fn trim_bom() {
 			let with_bom = fs::read_to_string(r"testdata/Markdown1.md").unwrap();
-			let without_bom = mdparse::trim_bom(&with_bom);
 
 			assert!(with_bom.starts_with('\u{feff}'));
-			assert!(!without_bom.1.starts_with('\u{feff}'));
-			assert_eq!(with_bom.chars().count(), 1 + without_bom.1.chars().count());
-			assert_eq!(without_bom.0, 3);
+			assert_eq!(mdparse::starts_with_bom(&with_bom), 3);
+
+			assert_eq!(mdparse::starts_with_bom(&"Hello, world!"), 0);
+			assert_eq!(mdparse::starts_with_bom(&"."), 0);
 		}
 
 		#[test]
 		fn find_first_line() {
-			assert_eq!(mdparse::find_first_line(""), None);
-			assert_eq!(mdparse::find_first_line("\r"), None);
-			assert_eq!(mdparse::find_first_line("\n"), None);
+			assert_eq!(mdparse::find_first_line("", 0), None);
+			assert_eq!(mdparse::find_first_line("\r", 0), None);
+			assert_eq!(mdparse::find_first_line("\n", 0), None);
 
-			let fl = mdparse::find_first_line("Lorem ipsum dolor sit amet").unwrap();
-			assert_eq!(fl.0, 0);
-			assert_eq!(fl.1, "Lorem ipsum dolor sit amet");
+			let text = "Lorem ipsum dolor sit amet";
+			let (s1, e1) = mdparse::find_first_line(text, 0).unwrap();
+			assert_eq!(s1, 0);
+			assert_eq!(&text[s1..e1], "Lorem ipsum dolor sit amet");
 
-			let fl = mdparse::find_first_line("Lorem ipsum dolor sit amet\r\n").unwrap();
-			assert_eq!(fl.0, 0);
-			assert_eq!(fl.1, "Lorem ipsum dolor sit amet");
+			let text = "Lorem ipsum dolor sit amet\r\n";
+			let (s1, e1) = mdparse::find_first_line(text, 0).unwrap();
+			assert_eq!(s1, 0);
+			assert_eq!(&text[s1..e1], "Lorem ipsum dolor sit amet");
 
-			let fl = mdparse::find_first_line("\r\r\n\nLorem ipsum dolor sit amet").unwrap();
-			assert_eq!(fl.0, 4);
-			assert_eq!(fl.1, "Lorem ipsum dolor sit amet");
+			let text = "\r\r\n\nLorem ipsum dolor sit amet";
+			let (s1, e1) = mdparse::find_first_line(text, 0).unwrap();
+			assert_eq!(s1, 4);
+			assert_eq!(&text[s1..e1], "Lorem ipsum dolor sit amet");
 
-			let fl = mdparse::find_first_line("\rLorem\ripsum\ndolor\r\nsit\namet\r\n").unwrap();
-			assert_eq!(fl.0, 1);
-			assert_eq!(fl.1, "Lorem");
+			let text = "\rLorem\ripsum\ndolor\r\nsit\namet\r\n";
+			let (s1, e1) = mdparse::find_first_line(text, 0).unwrap();
+			assert_eq!(s1, 1);
+			assert_eq!(&text[s1..e1], "Lorem");
 
-			let fl = mdparse::find_first_line("🔥").unwrap();
-			assert_eq!(fl.0, 0);
-			assert_eq!(fl.1, "🔥");
+			let text = "🔥";
+			let (s1, e1) = mdparse::find_first_line(text, 0).unwrap();
+			assert_eq!(s1, 0);
+			assert_eq!(&text[s1..e1], "🔥");
 		}
 
 		#[test]
 		fn find_next_line() {
-			assert_eq!(mdparse::find_next_line(""), None);
-			assert_eq!(mdparse::find_next_line("\r"), None);
-			assert_eq!(mdparse::find_next_line("\n"), None);
-			assert_eq!(mdparse::find_next_line("Lorem ipsum dolor sit amet"), None);
-			assert_eq!(mdparse::find_next_line("🔥"), None);
+			assert_eq!(mdparse::find_next_line("", 0), None);
+			assert_eq!(mdparse::find_next_line("\r", 0), None);
+			assert_eq!(mdparse::find_next_line("\n", 0), None);
+			assert_eq!(
+				mdparse::find_next_line("Lorem ipsum dolor sit amet", 0),
+				None
+			);
+			assert_eq!(mdparse::find_next_line("🔥", 0), None);
 
 			let text = "\rLorem\ripsum\ndolor\r\nsit\namet\r\n";
-			let (ix1, s) = mdparse::find_next_line(text).unwrap();
-			assert_eq!(ix1, 1);
-			assert_eq!(s, "Lorem");
+			let (s1, e1) = mdparse::find_next_line(text, 0).unwrap();
+			println!("1. {}..{} = {}", s1, e1, &text[s1..e1]);
+			assert_eq!(s1, 1);
+			assert_eq!(&text[s1..e1], "Lorem");
 
-			let (ix2, s) = mdparse::find_next_line(&text[ix1..]).unwrap();
-			assert_eq!(ix2, 6);
-			assert_eq!(s, "ipsum");
+			let (s1, e1) = mdparse::find_next_line(&text, s1).unwrap();
+			assert_eq!(s1, 7);
+			assert_eq!(&text[s1..e1], "ipsum");
 
-			let (ix3, s) = mdparse::find_next_line(&text[ix1 + ix2..]).unwrap();
-			assert_eq!(ix3, 6);
-			assert_eq!(s, "dolor");
+			let (s1, e1) = mdparse::find_next_line(&text, s1).unwrap();
+			assert_eq!(s1, 13);
+			assert_eq!(&text[s1..e1], "dolor");
 
-			let fl = mdparse::find_next_line("🔥\n🔥\n").unwrap();
-			assert_eq!(fl.0, 5);
-			assert_eq!(fl.1, "🔥");
+			let text = "🔥\n🔥\n";
+			let (s1, e1) = mdparse::find_next_line(text, 0).unwrap();
+			assert_eq!(s1, 5);
+			assert_eq!(&text[s1..e1], "🔥");
 		}
 
 		#[test]
@@ -1268,6 +1281,10 @@ mod mdparse {
 			assert_eq!(
 				NoteParser::strip_heading_attributes("My heading {#foo}"),
 				"My heading "
+			);
+			assert_eq!(
+				NoteParser::strip_heading_attributes("My {heading} {#foo}"),
+				"My {heading} "
 			);
 
 			// Only remove {} at the end!

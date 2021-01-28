@@ -20,3 +20,6 @@ lazy_static = "1.4"
 regex = "1"
 rprompt = "1.0"
 walkdir = "2"
+
+[profile.release]
+lto = true
