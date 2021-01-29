@@ -1,5 +1,13 @@
 # Changelog
 
+## Release 0.2.0 - Janyary 29, 2021
+
+- New Markdown parser that supports YAML front matter and ignores code blocks
+- Searching for note files is much faster
+- Removed feature to have backlinks heading include newlines and tabs
+- Allow editing notes after backlinks section, and not overwrite it
+- The `list-todos` subcommand is renamed `list-tasks`
+
 ## Release 0.1.1 - January 19, 2021
 
 A few minor bugfixes:
