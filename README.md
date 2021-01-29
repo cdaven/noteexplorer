@@ -2,6 +2,14 @@
 
 NoteExplorer is a tool to help organizing your stack of (wiki-)linked Markdown notes.
 
+Features:
+
+- Adds or updates a "backlinks" section in notes
+- Network analysis of links
+- Collects tasks scattered in notes
+- Reveals broken links
+- Updates filenames based on ID and title
+
 ## General tips
 
 When trying out NoteExplorer, please make backups of your notes, in case the tool doesn't work as expected, or you change your mind.
@@ -111,7 +119,9 @@ Alias: `tasks`
 
 Lists all open tasks from all notes. A task is a list item that starts with `- [ ] `. When you tick the box (`[x]`), the item will not show up in the list anymore.
 
-See e.g. [TODO.md](https://github.com/todo-md/todo-md).
+To "delete" tasks without removing them from the note, use the regular strikethrough/deleted syntax: `- ~~[ ] Give ring to Frodo~~`
+
+Note that tasks in numbered lists are not included.
 
 #### remove-backlinks
 
@@ -142,6 +152,8 @@ Asks for confirmation for each rename.
 ## Installation
 
 For now, the only way to install is to copy the published binaries (Windows and Linux). See [releases on Github](https://github.com/cdaven/noteexplorer/releases).
+
+I suggest you put the executable in the root folder of your notes, and keep a terminal window open. Maybe create some shell scripts with your preferred arguments.
 
 ## Limitations/rules
 
