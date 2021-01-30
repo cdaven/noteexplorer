@@ -4,9 +4,10 @@
 
 - [ ] check
 - [[]]
-- [[Filename Link]]
-- [[Search Query Link]]
-- [[20210103212011]]
+- Indented listst should also work
+    + [[Filename Link]]
+        1. [[Search Query Link]]
+        2. [[20210103212011]]
 - [Link Text]([[Regular Link To Wiki URI]])
 - [[Org-Mode Link Text][Org-Mode Link]]
 

@@ -21,7 +21,7 @@ lazy_static! {
 	.unwrap();
 	static ref TASK_EXPR: Regex = Regex::new(r"\A\s*[-+*]\s+\[ \]\s+(.+?)\z").unwrap();
 	static ref BACKLINK_EXPR: Regex = Regex::new(r"\A[-+*]\s*(.*?)\z").unwrap();
-	static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A\s+[-+*]\s.+\z").unwrap();
+	static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A\s+([-+*]|\d+\.)\s.+\z").unwrap();
 	// Two ways to start and end code blocks
 	static ref CODEBLOCK_TOKEN_1: &'static str = "```";
 	static ref CODEBLOCK_TOKEN_2: &'static str = "~~~";
