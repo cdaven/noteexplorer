@@ -14,7 +14,15 @@
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <summary>NoteExplorer is a tool to help organizing your stack of (wiki-)linked Markdown notes.</summary>
     <releaseNotes>https://github.com/cdaven/noteexplorer/blob/main/Changelog.md</releaseNotes>
-    <description>NoteExplorer is a command line tool to help organizing your stack of wikilinked Markdown notes. Adds backlinks to notes, lists broken links, isolated notes etc.</description>
+    <description>NoteExplorer is a CLI tool to help organizing your stack of (wiki-)linked Markdown notes.
+
+Features:
+
+- Adds or updates a "backlinks" section in notes
+- Network analysis of links
+- Collects tasks scattered in notes
+- Reveals broken links
+- Updates filenames based on ID and title</description>
     <copyright />
     <tags>zettelkasten markdown</tags>
     <dependencies>

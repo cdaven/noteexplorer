@@ -1,6 +1,6 @@
 # README
 
-NoteExplorer is a tool to help organizing your stack of (wiki-)linked Markdown notes.
+NoteExplorer is a CLI tool to help organizing your stack of (wiki-)linked Markdown notes.
 
 Features:
 
@@ -151,9 +151,15 @@ Asks for confirmation for each rename.
 
 ## Installation
 
-For now, the only way to install is to copy the published binaries (Windows and Linux). See [releases on Github](https://github.com/cdaven/noteexplorer/releases).
+For now, binaries exist for Windows and Linux, and can be [downloaded from GitHub](https://github.com/cdaven/noteexplorer/releases).
 
 I suggest you put the executable in the root folder of your notes, and keep a terminal window open. Maybe create some shell scripts with your preferred arguments.
+
+You can also install the Windows version [with Chocolatey](https://chocolatey.org/packages/noteexplorer/):
+
+```sh
+choco install noteexplorer
+```
 
 ## Limitations/rules
 
@@ -186,13 +192,15 @@ ID links are simple enough: `[[20210119212027]]`. Just the ID, no filename or ti
 
 ### Specifying the ID of a note
 
-When specifying a note's ID, you can put it anywhere in the filename or note contents. Except in code blocks or after the backlinks heading.
+It's highly recommended to put the note's ID either in the filename, the YAML frontmatter, or at the top of the note.
+
+You cannot put the ID in indented or fenced code blocks, in nested list items or in the backlinks section.
 
 If there is a string mathing your ID format in the filename, it is assumed to be the note's ID. Otherwise, the note's contents is scanned for the first matching ID.
 
-In both cases, the ID must have either a space or nothing in front of it, and a "non-word" character or nothing after it. This makes sure we don't match URLs with `/` and phone numbers with `+` before long numbers. It's not perfect, so it's best to keep the ID in the filename.
+In both cases, the ID must have either a space or nothing in front of it, and a "non-word" character or nothing after it. This makes sure we don't match URLs with `/` and phone numbers with `+` before long numbers.
 
-Note that you cannot specify the note's ID as a link, since that is assumed to link to another note.
+Note that if you specify the note's ID as a link: `[[20210119212027]]`, it will be considered a link to another note, and not the note's own ID.
 
 ### Parsing note titles
 

@@ -7,6 +7,8 @@ use debug_print::debug_println;
 fn main() {
 	let matches = App::new("NoteExplorer")
 		.version(crate_version!())
+		.author("Christian Davén <christian@daven.se>")
+		.about("Helps organizing your stack of linked Markdown notes")
 		.arg(
 			Arg::with_name("extension")
 				.short("e")
