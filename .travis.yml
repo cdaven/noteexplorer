@@ -8,6 +8,12 @@ script:
   - cargo build --release --target $TARGET --locked
   - cargo test --verbose
 
-# before_deploy:
-# ${TRAVIS_BUILD_DIR}/target/${TARGET}/release/noteexplorer
-# noteexplorer-${TRAVIS_TAG}
+before_deploy:
+  - zip --junk-path noteexplorer-macos-x86-${TRAVIS_TAG}.zip ${TRAVIS_BUILD_DIR}/target/${TARGET}/release/noteexplorer
+deploy:
+  provider: releases
+  api_key:
+    - secure: "YWnNxflAfxnCHe4ADZKhgjZCjkCH278GBuPbge/4fKTxp8vyZ7Rt4UAtlnWMGoSCRKY73xIDE3sf/nkCCC9CnaLkGpXMmav6aIKoG6tS8bdjwwzUxU4NoZ+61SI+70eAkR/IBA0u6LX+OgrvCVOng+HC+4Fn89KTlAwTNgdAKKrRSjcJyPVr0RviuDkpv+MZeI70qGtTdF9U6LLGtWuv4m1y1f3NISBNS6T8HGym4nxrrahHQe/pX11Gog/Np3t/n63i1uSUQfgRDX54Aqb9XDJH4RbBeCgUQTBQ/zDs1ir8VenvlpgoF0OKEHMkAlow6dlMzOmIprMY8fZHKQWmQ/mpouWciprKawxZW9TbDSmYkkn8UR5OKSaOwwAwc6L98StwXw5qF3pSAEc582TMDXuvI52l0bFE9bAMKIHGJ1GhdFnp+AoE1XQ0U4hMpKTk3rlGAT0ocuYOfUozY9Go4v/17ln+SSW9vadbL/qj48tSP5SurRk+6pd4vAUZy0LLcWZj4uBwr/kByVZ/VbMI3zvsHBmzL/J1ProuVir3unP2ydVmCnqmnHsoGft33V8CEh+qTjVizMu4OtuZ9ESjd4EI/Wesltyb7ikMIEH2pQe3cD2UPEUOTsM/ZGFhPAFw6jJajKCVJfadzXTi2JqllaRvFhN7kSjLTQJe3EHBLsM="
+  file: noteexplorer-macos-x86-${TRAVIS_TAG}.zip
+  skip_cleanup: true
+  draft: true
