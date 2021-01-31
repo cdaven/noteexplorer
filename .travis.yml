@@ -1,13 +1,13 @@
 language: rust
-rust:
-  - stable
-  - beta
-  - nightly
-jobs:
-  allow_failures:
-    - rust: nightly
-  fast_finish: true
+rust: stable
 cache: cargo
+
 os: osx
 env: MACOSX_DEPLOYMENT_TARGET=10.7 TARGET=x86_64-apple-darwin
-script: cargo build --release --target $TARGET --locked
+script:
+  - cargo build --release --target $TARGET --locked
+  - cargo test --verbose
+
+# before_deploy:
+# ${TRAVIS_BUILD_DIR}/target/${TARGET}/release/noteexplorer
+# noteexplorer-${TRAVIS_TAG}

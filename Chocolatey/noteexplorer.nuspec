@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
   <metadata>
     <id>noteexplorer</id>
-    <version>0.1.1</version>
+    <version>0.2.1</version>
     <owners>Christian Davén</owners>
     <title>NoteExplorer</title>
     <authors>Christian Davén</authors>

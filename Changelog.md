@@ -1,6 +1,10 @@
 # Changelog
 
-## Release 0.2.0 - Janyary 29, 2021
+## Release 0.2.1. - January 31, 2021
+
+- Fix bug where parser missed links in nested ordered lists
+
+## Release 0.2.0 - January 29, 2021
 
 - New Markdown parser that supports YAML front matter and ignores code blocks
 - Searching for note files is much faster
