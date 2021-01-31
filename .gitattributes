@@ -1,2 +1,5 @@
+# Default behaviour
+* text=auto
+
 # Tell Git not to mess with newlines in test data
-*.md binary
+testdata/*.md binary
