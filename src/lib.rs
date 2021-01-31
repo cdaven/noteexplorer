@@ -779,7 +779,7 @@ mod innerm {
 		fn backlinks() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")).unwrap(),
+				NoteFile::new(&path::PathBuf::from(r"testdata/BackLinks.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
@@ -793,7 +793,7 @@ mod innerm {
 		fn replace_backlinks() {
 			let parser = Rc::new(get_default_parser());
 			let note = Note::new(
-				NoteFile::new(&path::PathBuf::from(r"testdata/Backlinks.md")).unwrap(),
+				NoteFile::new(&path::PathBuf::from(r"testdata/BackLinks.md")).unwrap(),
 				Rc::clone(&parser),
 			);
 
