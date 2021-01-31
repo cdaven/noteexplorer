@@ -25,9 +25,6 @@ Features:
 - Updates filenames based on ID and title</description>
     <copyright />
     <tags>zettelkasten markdown</tags>
-    <dependencies>
-      <dependency id="vcredist2015" />
-    </dependencies>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
