@@ -83,6 +83,8 @@ Note that in order to change this heading for existing notes, you must first run
 
 ### Subcommands
 
+Note that all subcommands that explore connections between notes ignore links from the backlinks section, since these should not be considered outgoing links. To make sure this works, you have to include the `--backlinks-heading` option for these subcommands as well.
+
 #### list-broken-links
 
 Alias: `broken`
