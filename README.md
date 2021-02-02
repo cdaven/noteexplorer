@@ -167,22 +167,11 @@ choco install noteexplorer
 
 NoteExplorer is in many ways inspired by [the ideas behind Zettlr](https://docs.zettlr.com/en/academic/zkn-method/), but should work with other note-taking systems that support Markdown wikilinks.
 
-You can create links between notes with this syntax: `[[<label>|<id or filename>#<section>]]`, where both label and section are optional. There are two ways to pinpoint other notes in links.
-
 ### Filename links
 
 You can link to the target note's filename, like `[[The Hobbit]]`. Note that filename links are case insensitive and the path and file extension is omitted. Your note-taking application is assumed to find the right file anyway.
 
-This means that filenames must be unique in a collection of notes. Also, filename links are expected to follow the same rules as filenames in Windows:
-
-Filename links:
-
-- Cannot contain any of the characters `<`, `>`, `:`, `"`, `/`, `\`, `|`, `?`, `*`, tabs and newlines. Most of these are ok on Linux and Mac OS, and some on Windows, but this helps make sure your notes and this application is cross-platform.
-- Cannot contain any of the characters `[`, `]`, `#`. This is simply because it messes up the wikilink syntax.
-- Cannot start or end with a dot (`.`). Technically, Windows only forbids trailing dots, but leading dots means "hidden file" in Linux and Mac OS.
-- Cannot start or end with a space (` `). This isn't forbidden by the operating systems, but seems like a reasonable limitation to avoid false positives.
-
-The labels and sections can contain any character except for `[`, `]`, `#`, `|`.
+From version 0.3.0, illegal filename characters and `[` and `]` are allowed in filename links. This makes it easier to find invalid links with the `list-broken-links` subcommand.
 
 ### ID links
 
@@ -236,6 +225,6 @@ First, [install Rust](https://www.rust-lang.org/tools/install) and all its depen
 
 Then you can build NoteExplorer by simply running `cargo build` or `cargo build --release`.
 
-Run unit tests with `cargo test`.
-
-Lint code with `cargo clippy`.
+- Run unit tests with `cargo test`.
+- Lint code with `cargo clippy`.
+- Profile code with `cargo profiler callgrind`.

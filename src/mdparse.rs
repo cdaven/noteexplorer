@@ -1,27 +1,25 @@
-use crate::innerm::{NoteFile, WikiLink};
+use crate::note::WikiLink;
 use lazy_static::*;
 use regex::Regex;
+use std::borrow::Cow;
 
 lazy_static! {
 	static ref YAML_TITLE_EXPR: Regex =
 		Regex::new(r#"\A\s*['"]?title['"]?\s*: \s*['"]?([^'"]+)['"]?\z"#).unwrap();
-	static ref WIKILINK_EXPR: Regex = Regex::new(
-		&"\\[\\[(?x)
-			# Label can occur first, ends with |
-			([^\\[\\]]+\\|)?
-			(
-				# Filename or ID
-				{:link_chars:}+?
-			)
-			# Section can occur last, starts with #
-			((?-x:#)[^\\[\\]]+)?
-			\\]\\]"
-			.replace("{:link_chars:}", "[^<>:*?/\\]\\[\"\\\\\\t]")
+
+	static ref LINK_CHARS: &'static str = "[^<>:*?|/\\]\\[\"\\\\\\t]";
+	static ref WIKILINK_SIMPLE_EXPR: Regex = Regex::new(
+		&"\\[\\[(.+?)\\]\\]"
+		.replace("{:link_chars:}", *LINK_CHARS)
 	)
 	.unwrap();
 	static ref TASK_EXPR: Regex = Regex::new(r"\A\s*[-+*]\s+\[ \]\s+(.+?)\z").unwrap();
 	static ref BACKLINK_EXPR: Regex = Regex::new(r"\A[-+*]\s*(.*?)\z").unwrap();
 	static ref INDENTED_LIST_EXPR: Regex = Regex::new(r"\A\s+([-+*]|\d+\.)\s.+\z").unwrap();
+
+	/// Characters that can be escaped in Markdown
+	static ref ESCAPED_CHARS_EXPR: Regex = Regex::new(r"\\([\\`\*_{}\[\]<>()#+-\.!|])").unwrap();
+
 	// Two ways to start and end code blocks
 	static ref CODEBLOCK_TOKEN_1: &'static str = "```";
 	static ref CODEBLOCK_TOKEN_2: &'static str = "~~~";
@@ -127,10 +125,10 @@ impl NoteParser {
 					// Heading 1
 					if ln_bytes.len() > 2 && ln_bytes[0] == b'#' && ln_bytes[1] == b' ' {
 						titles.push(
-							// Remove {.attributes} and trailing # characters and spaces
+							// Remove {.attributes} and trailing spaces
 							// See https://pandoc.org/MANUAL.html#pandocs-markdown
 							NoteParser::strip_heading_attributes(&ln[2..])
-								.trim_end_matches(|c| c == ' ' || c == '#')
+								.trim_end()
 								.to_owned(),
 						);
 						if let Some(capture) = self.id_expr.captures(ln) {
@@ -225,16 +223,16 @@ impl NoteParser {
 	}
 
 	pub fn get_wiki_links(&self, text: &str) -> Option<Vec<WikiLink>> {
-		let mut captures = WIKILINK_EXPR.captures_iter(&text).peekable();
+		let mut captures = WIKILINK_SIMPLE_EXPR.captures_iter(&text).peekable();
 		if captures.peek().is_none() {
 			return None;
 		}
 		let mut links = Vec::new();
 		for capture in captures {
-			let link = capture[2].to_string();
+			let link = capture[1].to_string();
 			if self.is_id(&link) {
 				links.push(WikiLink::Id(link));
-			} else if !NoteFile::begins_or_ends_with_dot_or_space(&link) {
+			} else {
 				links.push(WikiLink::FileName(link));
 			}
 		}
@@ -286,6 +284,10 @@ fn find_next_line(text: &str, offset: usize) -> Option<(usize, usize)> {
 		None => None,
 		Some(pos) => find_first_line(&text, pos),
 	}
+}
+
+fn escape_markdown(text: &str) -> Cow<str> {
+	ESCAPED_CHARS_EXPR.replace_all(text, "$1")
 }
 
 #[cfg(test)]
@@ -442,5 +444,72 @@ mod tests {
 		for (expected, actual) in expected_links.iter().zip(data.links.iter()) {
 			assert_eq!(actual, expected);
 		}
+	}
+
+	#[test]
+	fn parse_links() {
+		let text = fs::read_to_string(r"testdata/Links.md").unwrap();
+		let parser = NoteParser::new(r"\d{11,14}", "**Links to this note**").unwrap();
+		let data = parser.parse(&text);
+
+		let expected_links = vec![
+			WikiLink::Id("20210104073402".to_owned()),
+			WikiLink::Id("20210103212011".to_owned()),
+			WikiLink::FileName("Filename Link".to_owned()),
+			WikiLink::FileName("Search Query Link".to_owned()),
+			WikiLink::FileName("Regular Link To Wiki URI".to_owned()),
+			WikiLink::FileName("Org-Mode Link Text][Org-Mode Link".to_owned()),
+			WikiLink::FileName("using labelled links|labelling wiki links".to_owned()),
+			WikiLink::FileName("the filename first#section then".to_owned()),
+			WikiLink::FileName("my [not so pretty] link".to_owned()),
+			WikiLink::FileName(" some text and then [[a link".to_owned()),
+		];
+
+		for expected_link in &expected_links {
+			assert!(data.links.contains(expected_link));
+		}
+
+		let unexpected_links = vec![
+			WikiLink::FileName("Inside Fenced Code Block".to_owned()),
+			WikiLink::FileName("Also fenced".to_owned()),
+		];
+
+		for unexpected_link in &unexpected_links {
+			assert!(!data.links.contains(unexpected_link));
+		}
+
+		assert_eq!(data.links.len(), expected_links.len());
+	}
+
+	#[test]
+	fn oneliner_parser() {
+		let text = r"# Just a heading";
+		let parser = NoteParser::new(r"\d{14}", "## Links to this note").unwrap();
+		let data = parser.parse(&text);
+
+		assert!(data
+			.titles
+			.contains(&"Just a heading".to_owned()));
+		assert_eq!(data.titles.len(), 1);
+		assert_eq!(data.links.len(), 0);
+		assert_eq!(data.ids.len(), 0);
+		assert_eq!(data.tasks.len(), 0);
+		assert!(data.backlinks_start.is_none());
+		assert!(data.backlinks_end.is_none());
+	}
+
+	#[test]
+	fn escaped_characters() {
+
+		// När behövs det stöd för detta egentligen?
+
+		assert_eq!(
+			mdparse::escape_markdown(r"C\#\! \{ 0 \+\- 1 \}"),
+			"C#! { 0 +- 1 }"
+		);
+		assert_eq!(
+			mdparse::escape_markdown(r"Escape\.\`\(\\\[\|\*\]\)"),
+			r"Escape.`(\[|*])"
+		);
 	}
 }
