@@ -81,7 +81,7 @@ impl NoteFile {
 			path: self.path.clone(),
 			stem: self.stem.clone(),
 			extension: self.extension.clone(),
-			content: contents.to_owned()
+			content: contents.to_owned(),
 		}
 	}
 }
@@ -231,7 +231,7 @@ impl Note {
 		!self.links.is_empty()
 	}
 
-	/** Return a copy of the note's meta data */
+	/// Return a copy of the note's meta data
 	fn get_meta(&self) -> NoteMeta {
 		NoteMeta {
 			path: self.file.path.clone(),
@@ -261,6 +261,10 @@ impl Note {
 		format!("[[{}]] {}", link_target, link_desc)
 			.trim_end()
 			.to_string()
+	}
+
+	pub fn get_filename_link(&self) -> WikiLink {
+		WikiLink::FileName(self.file.stem.to_string())
 	}
 
 	fn is_link_to(&self, link: &WikiLink) -> bool {
@@ -330,18 +334,16 @@ impl fmt::Display for WikiLink {
 }
 
 pub struct NoteCollection {
-	/** Lookup for IDs and file names to all notes */
+	/// Lookup for IDs and file names to all notes
 	notes: HashMap<WikiLink, RcNote>,
-	/** List of all notes */
-	notes_iter: Vec<RcNote>,
-	backlinks: HashMap<WikiLink, Vec<RcNote>>,
+	/// Lookup for links, with the target as key
+	backlinks: HashMap<WikiLink, Vec<WikiLink>>,
 }
 
 impl NoteCollection {
 	pub fn collect_files(root: &path::Path, extension: &str, parser: NoteParser) -> NoteCollection {
 		let parser = Rc::new(parser);
 		let mut notes = HashMap::new();
-		let mut notes_iter = Vec::new();
 		let mut backlinks = HashMap::new();
 
 		let start_time = Utc::now();
@@ -363,7 +365,6 @@ impl NoteCollection {
 			};
 
 			let note = Rc::new(Note::new(note_file, Rc::clone(&parser)));
-			notes_iter.push(Rc::clone(&note));
 
 			if let Some(id) = &note.id {
 				if let Some(conflicting_note) =
@@ -379,10 +380,7 @@ impl NoteCollection {
 				}
 			}
 
-			notes.insert(
-				WikiLink::FileName(note.file.stem.to_string()),
-				Rc::clone(&note),
-			);
+			notes.insert(note.get_filename_link(), Rc::clone(&note));
 
 			for link in &note.links {
 				// Ignore "backlinks" to self
@@ -390,16 +388,11 @@ impl NoteCollection {
 					backlinks
 						.entry(link.clone())
 						.or_insert_with(Vec::new)
-						.push(Rc::clone(&note));
+						.push(note.get_filename_link());
 				}
 			}
 		}
 		let duration_note_loop = Utc::now() - start_time;
-
-		let start_time = Utc::now();
-		// TODO: Doesn't always want to sort by title, should probably be elsewhere
-		notes_iter.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
-		let duration_sort = Utc::now() - start_time;
 
 		debug_println!(
 			"ftree::get_files() took {} ms",
@@ -409,33 +402,33 @@ impl NoteCollection {
 			"loading and parsing notes took {} ms",
 			duration_note_loop.num_milliseconds()
 		);
-		debug_println!("sorting notes took {} ms", duration_sort.num_milliseconds());
-		NoteCollection {
-			notes,
-			notes_iter,
-			backlinks,
-		}
+
+		NoteCollection { notes, backlinks }
 	}
 
-	fn visit_notes(&self, callback: &mut dyn FnMut(&Note)) {
-		for note in &self.notes_iter {
-			callback(&note);
-		}
+	/// Get iterator over notes
+	fn get_notes_iter(&self) -> impl Iterator<Item = &RcNote> {
+		self.notes
+			.iter()
+			// Only look at filename ids/keys, since all notes have
+			// exactly one filename, but 0..1 ids.
+			.filter(|(k, _)| matches!(k, WikiLink::FileName(_)))
+			.map(|(_, v)| v)
+	}
+
+	/// Get vector of notes, sorted by title
+	fn get_sorted_notes(&self) -> Vec<RcNote> {
+		let mut notes: Vec<RcNote> = self.get_notes_iter().cloned().collect();
+		notes.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
+		notes
 	}
 
 	pub fn count(&self) -> usize {
-		self.notes_iter.len()
+		self.get_notes_iter().count()
 	}
 
 	pub fn count_with_id(&self) -> usize {
-		let mut count: usize = 0;
-		let mut f = |note: &Note| {
-			if note.id.is_some() {
-				count += 1;
-			}
-		};
-		self.visit_notes(&mut f);
-		count
+		self.get_notes_iter().filter(|n| n.id.is_some()).count()
 	}
 
 	pub fn count_links(&self) -> usize {
@@ -444,10 +437,9 @@ impl NoteCollection {
 
 	pub fn into_meta_vec(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::with_capacity(self.count());
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			notes.push(note.get_meta());
-		};
-		self.visit_notes(&mut f);
+		}
 		notes
 	}
 
@@ -468,16 +460,16 @@ impl NoteCollection {
 		false
 	}
 
-	fn get_incoming_links(&self, note: &Note) -> HashSet<RcNote> {
-		let empty: Vec<RcNote> = Vec::new();
-		let links1: HashSet<&RcNote> = self
+	fn get_incoming_links(&self, note: &Note) -> Vec<RcNote> {
+		let empty: Vec<WikiLink> = Vec::new();
+		let links1: HashSet<&WikiLink> = self
 			.backlinks
-			.get(&WikiLink::FileName(note.file.stem.to_string()))
+			.get(&note.get_filename_link())
 			.unwrap_or(&empty)
 			.iter()
 			.collect();
 
-		let links2: HashSet<&RcNote> = if let Some(id) = &note.id {
+		let links2: HashSet<&WikiLink> = if let Some(id) = &note.id {
 			self.backlinks
 				.get(&WikiLink::Id(id.to_string()))
 				.unwrap_or(&empty)
@@ -487,42 +479,43 @@ impl NoteCollection {
 			HashSet::new()
 		};
 
-		links1.union(&links2).map(|rcn| Rc::clone(rcn)).collect()
+		let mut links = Vec::with_capacity(links1.len() + links2.len());
+		for linker in links1.union(&links2) {
+			links.push(Rc::clone(&self.notes[linker]))
+		}
+		links
 	}
 
 	/// Get notes with no incoming links, but at least one outgoing
 	pub fn get_sources(&self) -> Vec<NoteMeta> {
 		let mut sources = Vec::new();
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			if note.has_outgoing_links() && !self.note_has_incoming_links(note) {
 				sources.push(note.get_meta());
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		sources
 	}
 
 	/** Get notes with no outgoing links, but at least one incoming */
 	pub fn get_sinks(&self) -> Vec<NoteMeta> {
 		let mut sinks = Vec::new();
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			if !note.has_outgoing_links() && self.note_has_incoming_links(note) {
 				sinks.push(note.get_meta());
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		sinks
 	}
 
 	/** Get notes with no incoming or outgoing links */
 	pub fn get_isolated(&self) -> Vec<NoteMeta> {
 		let mut isolated = Vec::new();
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			if !note.has_outgoing_links() && !self.note_has_incoming_links(note) {
 				isolated.push(note.get_meta());
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		isolated
 	}
 
@@ -533,7 +526,7 @@ impl NoteCollection {
 		for broken in linked.difference(&existing) {
 			let linkers: Vec<NoteMeta> = self.backlinks[broken]
 				.iter()
-				.map(|n| n.get_meta())
+				.map(|link| self.notes[link].get_meta())
 				.collect();
 			notes.push((*broken, linkers));
 		}
@@ -542,18 +535,17 @@ impl NoteCollection {
 
 	pub fn get_tasks(&self) -> Vec<(NoteMeta, Vec<String>)> {
 		let mut tasks = Vec::new();
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			if !note.tasks.is_empty() {
 				tasks.push((note.get_meta(), note.tasks.clone()));
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		tasks
 	}
 
 	pub fn remove_backlinks(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::new();
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			if note.has_backlinks() {
 				if let Err(e) =
 					NoteFile::save(&note.file.path, &note.get_contents_without_backlinks())
@@ -563,16 +555,14 @@ impl NoteCollection {
 					notes.push(note.get_meta());
 				}
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		notes
 	}
 
 	pub fn update_backlinks(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::new();
-		let mut f = |note: &Note| {
-			let mut incoming_links: Vec<RcNote> =
-				self.get_incoming_links(note).into_iter().collect();
+		for note in &self.get_sorted_notes() {
+			let mut incoming_links: Vec<RcNote> = self.get_incoming_links(note);
 
 			// First sort by filename to get a stable sort when titles are identical
 			incoming_links.sort_by(|a, b| a.file.stem.cmp(&b.file.stem));
@@ -605,14 +595,13 @@ impl NoteCollection {
 					notes.push(note.get_meta());
 				}
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		notes
 	}
 
 	pub fn get_mismatched_filenames(&self) -> Vec<(NoteMeta, String)> {
 		let mut fs = Vec::new();
-		let mut f = |note: &Note| {
+		for note in &self.get_sorted_notes() {
 			let new_filename = if let Some(id) = &note.id {
 				NoteFile::clean_filename(&format!("{} {}", id, &note.title))
 			} else {
@@ -621,8 +610,7 @@ impl NoteCollection {
 			if note.file.stem.to_lowercase() != new_filename.to_lowercase() {
 				fs.push((note.get_meta(), new_filename));
 			}
-		};
-		self.visit_notes(&mut f);
+		}
 		fs
 	}
 
@@ -642,11 +630,11 @@ impl NoteCollection {
 		let old_link = Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem);
 		let new_link = Note::get_wikilink(&None, &EMPTY_STRING, &new_file_stem);
 
-		for backlink in &self.backlinks[&WikiLink::FileName(old_file_stem.to_owned())] {
-			backlink.replace_file(backlink.file.replace_contents(&backlink.file.content.replace(&old_link, &new_link)));
+		// for backlink in &self.backlinks[&WikiLink::FileName(old_file_stem.to_owned())] {
+		// 	backlink.replace_file(backlink.file.replace_contents(&backlink.file.content.replace(&old_link, &new_link)));
 
-			// Om vi uppdaterar länkarna mer än en gång i samma fil, kommer vi skriva över tidigare uppdateringar
-		}
+		// 	// Om vi uppdaterar länkarna mer än en gång i samma fil, kommer vi skriva över tidigare uppdateringar
+		// }
 	}
 }
 
