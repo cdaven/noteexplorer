@@ -1,10 +1,10 @@
-mod note;
 mod ftree;
 mod mdparse;
+mod note;
 
-use note::{NoteCollection, NoteFile, NoteMeta};
 use chrono::Utc;
 use debug_print::debug_println;
+use note::{NoteCollection, NoteFile, NoteMeta};
 use std::error::Error;
 use std::fs;
 
@@ -15,6 +15,7 @@ pub struct Config {
 	pub extension: String,
 	pub path: String,
 	pub command: String,
+	pub force: bool,
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
@@ -35,7 +36,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 		"list-tasks" => print_tasks(&notes),
 		"remove-backlinks" => remove_backlinks(&notes),
 		"update-backlinks" => update_backlinks(&notes),
-		"update-filenames" => update_filenames(&notes)?,
+		"update-filenames" => update_filenames(&notes, config.force)?,
 		_ => print_stats(&notes),
 	}
 	let duration_subcommand = Utc::now() - start_time;
@@ -137,19 +138,22 @@ fn update_backlinks(note_collection: &NoteCollection) {
 	}
 }
 
-fn update_filenames(note_collection: &NoteCollection) -> Result<(), Box<dyn Error>> {
-	for (note, new_filename) in note_collection.get_mismatched_filenames() {
-		let original_file_name = format!("{}.{}", note.stem, note.extension);
-		let reply = rprompt::prompt_reply_stdout(&format!(
-			"Rename \"{}\" to \"{}\"? ([y]/n) ",
-			original_file_name, new_filename
-		))?;
+fn update_filenames(note_collection: &NoteCollection, force: bool) -> Result<(), Box<dyn Error>> {
+	for (note, new_stem) in note_collection.get_mismatched_filenames() {
+		let original_filename = format!("{}.{}", note.stem, note.extension);
+		let new_filename = format!("{}.{}", new_stem, note.extension);
+		let reply = if force {
+			"y".to_owned()
+		} else {
+			rprompt::prompt_reply_stdout(&format!(
+				"Rename \"{}\" to \"{}\"? ([y]/n) ",
+				original_filename, new_filename
+			))?
+		};
 
 		if reply == "y" || reply.is_empty() {
-			if note.path.ends_with(&original_file_name) {
-				let folder = &note.path[..(note.path.len() - original_file_name.len())];
-				let new_path = folder.to_string() + &new_filename;
-				NoteFile::rename(&note.path, &new_path)?;
+			if note.path.ends_with(&original_filename) {
+				note_collection.rename_note(&note, &new_stem)?;
 			} else {
 				// TODO: Return as Err
 				eprintln!("Error: probably a bug in how the file name path is determined");
@@ -158,4 +162,87 @@ fn update_filenames(note_collection: &NoteCollection) -> Result<(), Box<dyn Erro
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::*;
+	use std::env::temp_dir;
+	use std::{fs, io};
+	use std::io::Write;
+	use std::path::PathBuf;
+
+	/// Create directory, removing it first if it exists,
+	/// together with all files and subdirectories. Careful!
+	fn create_dir(dir: &PathBuf) -> io::Result<()> {
+		if dir.exists() {
+			fs::remove_dir_all(dir)?;
+		}
+
+		fs::create_dir(&dir)?;
+
+		Ok(())
+	}
+
+	fn write_to_tmp_file(dir: &mut PathBuf, filename: &str, contents: &str) -> io::Result<()> {
+		dir.push(filename);
+		let mut file = fs::File::create(dir)?;
+		file.write_all(contents.as_bytes())?;
+		Ok(())
+	}
+
+	#[test]
+	fn rename_file() {
+		let mut dir = temp_dir();
+		dir.push("noteexplorer-test-rename");
+		create_dir(&dir).unwrap();
+
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-1.md", "# Rename This 1\r\nHere is a link to another file: [[noteexplorer-test-rename-2]]. And some text after").unwrap();
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-2.md", "# Rename Then 2\r\nHere is a link to another file: [[noteexplorer-test-rename-1]]. And some text after").unwrap();
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-3.md", "# Rename That 3\r\nHere are the links: [[noteexplorer-test-rename-1]] and [[noteexplorer-test-rename-2]]. And some text after").unwrap();
+
+		let notes_before = NoteCollection::collect_files(
+			&dir,
+			&"md",
+			crate::mdparse::NoteParser::new(&r"\d{14}", &"## Backlinks").unwrap(),
+		);
+
+		// No extra notes should be found
+		assert_eq!(notes_before.count(), 3);
+		// No broken links in the test data
+		assert_eq!(notes_before.get_broken_links().len(), 0);
+
+		update_filenames(&notes_before, true).unwrap();
+
+		let notes_after = NoteCollection::collect_files(
+			&dir,
+			&"md",
+			crate::mdparse::NoteParser::new(&r"\d{14}", &"## Backlinks").unwrap(),
+		);
+
+		for note in notes_after.into_meta_vec() {
+			match note.title.as_str() {
+				"Rename This 1" => {
+					assert_eq!(note.stem, "Rename This 1");
+				}
+				"Rename Then 2" => {
+					assert_eq!(note.stem, "Rename Then 2");
+					// TODO: Assert note.links
+				}
+				"Rename That 3" => {
+					assert_eq!(note.stem, "Rename That 3");
+					// TODO: Assert note.links
+				}
+				_ => {
+					panic!("Unrecognized note title");
+				}
+			};
+		}
+
+		assert_eq!(notes_after.count(), 3);
+		assert_eq!(notes_after.get_broken_links().len(), 0);
+		assert_eq!(notes_after.get_isolated().len(), 0);
+		assert_eq!(notes_after.get_sources().len(), 1);
+		assert_eq!(notes_after.get_sinks().len(), 0);
+	}
 }
