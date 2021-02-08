@@ -198,7 +198,8 @@ mod tests {
 		create_dir(&dir).unwrap();
 
 		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-1.md", "# Rename This 1\r\nHere is a link to another file: [[noteexplorer-test-rename-2]]. And some text after").unwrap();
-		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-2.md", "# Rename This 2\r\nHere is a link to another file: [[noteexplorer-test-rename-1]]. And some text after").unwrap();
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-2.md", "# Rename Then 2\r\nHere is a link to another file: [[noteexplorer-test-rename-1]]. And some text after").unwrap();
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-3.md", "# Rename That 3\r\nHere are the links: [[noteexplorer-test-rename-1]] and [[noteexplorer-test-rename-2]]. And some text after").unwrap();
 
 		let notes_before = NoteCollection::collect_files(
 			&dir,
@@ -207,7 +208,7 @@ mod tests {
 		);
 
 		// No extra notes should be found
-		assert_eq!(notes_before.count(), 2);
+		assert_eq!(notes_before.count(), 3);
 		// No broken links in the test data
 		assert_eq!(notes_before.get_broken_links().len(), 0);
 
@@ -224,8 +225,13 @@ mod tests {
 				"Rename This 1" => {
 					assert_eq!(note.stem, "Rename This 1");
 				}
-				"Rename This 2" => {
-					assert_eq!(note.stem, "Rename This 2");
+				"Rename Then 2" => {
+					assert_eq!(note.stem, "Rename Then 2");
+					// TODO: Assert note.links
+				}
+				"Rename That 3" => {
+					assert_eq!(note.stem, "Rename That 3");
+					// TODO: Assert note.links
 				}
 				_ => {
 					panic!("Unrecognized note title");
@@ -233,7 +239,10 @@ mod tests {
 			};
 		}
 
-		assert_eq!(notes_after.count(), 2);
+		assert_eq!(notes_after.count(), 3);
 		assert_eq!(notes_after.get_broken_links().len(), 0);
+		assert_eq!(notes_after.get_isolated().len(), 0);
+		assert_eq!(notes_after.get_sources().len(), 1);
+		assert_eq!(notes_after.get_sinks().len(), 0);
 	}
 }

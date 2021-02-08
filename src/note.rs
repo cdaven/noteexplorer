@@ -5,8 +5,7 @@ use chrono::Utc;
 use debug_print::debug_println;
 use lazy_static::*;
 use regex::Regex;
-use std::cell::Ref;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -26,9 +25,13 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct NoteFile {
+	/// Full path to file
 	pub path: String,
+	/// Filename without path and extension
 	pub stem: String,
+	/// Filename extension without leading dot
 	pub extension: String,
+	/// File contents
 	pub content: String,
 }
 
@@ -73,9 +76,18 @@ impl NoteFile {
 		fs::write(&path, String::from(contents.trim_end()) + "\n")
 	}
 
-	/** Renames file, assuming that the path is valid and escaped */
-	pub fn rename(oldpath: &str, newpath: &str) -> io::Result<()> {
-		fs::rename(oldpath, newpath)
+	/// Renames file, assuming that the path is valid and escaped
+	pub fn rename(&self, new_stem: &str) -> io::Result<NoteFile> {
+		let new_path = path::Path::new(&self.path)
+			.with_file_name(new_stem)
+			.with_extension(&self.extension);
+		fs::rename(&self.path, &new_path)?;
+		Ok(NoteFile {
+			path: new_path.as_os_str().to_str().unwrap().to_string(),
+			stem: new_stem.to_string(),
+			extension: self.extension.clone(),
+			content: self.content.clone(),
+		})
 	}
 
 	pub fn replace_contents(&self, contents: &str) -> NoteFile {
@@ -150,7 +162,8 @@ impl Note {
 		}
 	}
 
-	fn replace_file(&mut self, file: NoteFile) {
+	/// Insert/replace NoteFile object in mutable copy
+	fn insert_file(&mut self, file: NoteFile) {
 		self.file = file
 	}
 
@@ -261,6 +274,10 @@ impl Note {
 			}
 		}
 	}
+
+	pub fn save(&self) -> io::Result<()> {
+		NoteFile::save(&self.file.path, &self.file.content)
+	}
 }
 
 #[derive(PartialEq, Eq, Hash, Debug)]
@@ -321,7 +338,7 @@ pub struct NoteCollection {
 	/// Lookup for IDs and file names to all notes
 	notes: HashMap<WikiLink, RcRefNote>,
 	/// Lookup for links, with the target as key
-	backlinks: HashMap<WikiLink, Vec<WikiLink>>,
+	backlinks: HashMap<WikiLink, Vec<RcRefNote>>,
 }
 
 impl NoteCollection {
@@ -372,7 +389,7 @@ impl NoteCollection {
 					backlinks
 						.entry(link.clone())
 						.or_insert_with(Vec::new)
-						.push(note.borrow().get_filename_link());
+						.push(Rc::clone(&note));
 				}
 			}
 		}
@@ -405,10 +422,6 @@ impl NoteCollection {
 		let mut notes: Vec<Ref<Note>> = self.get_notes_iter().collect();
 		notes.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
 		notes
-	}
-
-	fn get_note(&self, link: &WikiLink) -> Ref<Note> {
-		self.notes[link].borrow()
 	}
 
 	pub fn count(&self) -> usize {
@@ -448,30 +461,28 @@ impl NoteCollection {
 		false
 	}
 
-	fn get_incoming_links(&self, note: &Note) -> Vec<Ref<Note>> {
-		let empty: Vec<WikiLink> = Vec::new();
-		let links1: HashSet<&WikiLink> = self
+	/// Get incoming links to note. Can contain duplicates!
+	fn get_incoming_links(&self, note: &Note) -> Vec<RcRefNote> {
+		let empty: Vec<RcRefNote> = Vec::new();
+
+		let mut links: Vec<&RcRefNote> = self
 			.backlinks
 			.get(&note.get_filename_link())
 			.unwrap_or(&empty)
 			.iter()
 			.collect();
 
-		let links2: HashSet<&WikiLink> = if let Some(id) = &note.id {
-			self.backlinks
-				.get(&WikiLink::Id(id.to_string()))
-				.unwrap_or(&empty)
-				.iter()
-				.collect()
-		} else {
-			HashSet::new()
-		};
-
-		let mut links = Vec::with_capacity(links1.len() + links2.len());
-		for linker in links1.union(&links2) {
-			links.push(self.get_note(linker))
+		if let Some(id) = &note.id {
+			links.extend(
+				&mut self
+					.backlinks
+					.get(&WikiLink::Id(id.to_string()))
+					.unwrap_or(&empty)
+					.iter(),
+			)
 		}
-		links
+
+		links.iter().map(|rcn| Rc::clone(rcn)).collect()
 	}
 
 	/// Get notes with no incoming links, but at least one outgoing
@@ -514,7 +525,7 @@ impl NoteCollection {
 		for broken in linked.difference(&existing) {
 			let linkers: Vec<NoteMeta> = self.backlinks[broken]
 				.iter()
-				.map(|link| self.get_note(link).get_meta())
+				.map(|note| note.borrow().get_meta())
 				.collect();
 			notes.push((*broken, linkers));
 		}
@@ -550,16 +561,22 @@ impl NoteCollection {
 	pub fn update_backlinks(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::new();
 		for note in &self.get_sorted_notes() {
-			let mut incoming_links: Vec<Ref<Note>> = self.get_incoming_links(note);
+			let incoming_links = self.get_incoming_links(note);
+			let mut incoming_links: Vec<Ref<Note>> =
+				incoming_links.iter().map(|n| n.borrow()).collect();
 
 			// First sort by filename to get a stable sort when titles are identical
 			incoming_links.sort_by(|a, b| a.file.stem.cmp(&b.file.stem));
 			incoming_links.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
 
-			let new_backlinks: Vec<String> = incoming_links
+			let mut new_backlinks: Vec<String> = incoming_links
 				.iter()
 				.map(|linking_note| "- ".to_string() + &linking_note.get_wikilink_to())
 				.collect();
+
+			// Remove possible duplicate links
+			new_backlinks.dedup();
+
 			let new_section = new_backlinks.join("\n");
 
 			let current_section = note
@@ -602,27 +619,44 @@ impl NoteCollection {
 		fs
 	}
 
-	pub fn rename_note(&self, note: &NoteMeta, new_stem: &str) -> io::Result<()> {
-		let original_filename = format!("{}.{}", note.stem, note.extension);
-		let folder = &note.path[..(note.path.len() - original_filename.len())];
-		let new_filename = format!("{}.{}", new_stem, note.extension);
-		let new_path = folder.to_owned() + &new_filename;
-		NoteFile::rename(&note.path, &new_path)?;
+	pub fn rename_note(&self, note_meta: &NoteMeta, new_stem: &str) -> io::Result<()> {
+		let note = &self.notes[&WikiLink::FileName(note_meta.stem.to_string())];
 
-		self.update_filename_backlinks_to(&note.stem, &new_stem);
+		// Rename note file and replace NoteFile object in Note
+		let new_note_file = note.borrow().file.rename(&new_stem)?;
+		note.borrow_mut().insert_file(new_note_file);
+
+		self.update_filename_backlinks_to(&note_meta.stem, &new_stem)?;
 
 		Ok(())
 	}
 
-	fn update_filename_backlinks_to(&self, old_file_stem: &str, new_file_stem: &str) {
-		let old_link = Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem);
-		let new_link = Note::get_wikilink(&None, &EMPTY_STRING, &new_file_stem);
+	fn update_filename_backlinks_to(
+		&self,
+		old_file_stem: &str,
+		new_file_stem: &str,
+	) -> io::Result<()> {
+		let old_filename_link = WikiLink::FileName(old_file_stem.to_owned());
 
-		// for backlink in &self.backlinks[&WikiLink::FileName(old_file_stem.to_owned())] {
-		// 	backlink.replace_file(backlink.file.replace_contents(&backlink.file.content.replace(&old_link, &new_link)));
+		if self.backlinks.contains_key(&old_filename_link) {
+			let old_link = Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem);
+			let new_link = Note::get_wikilink(&None, &EMPTY_STRING, &new_file_stem);
 
-		// 	// Om vi uppdaterar länkarna mer än en gång i samma fil, kommer vi skriva över tidigare uppdateringar
-		// }
+			for backlink in self.backlinks[&old_filename_link].iter() {
+				{
+					let new_note_file: NoteFile;
+					{
+						let new_contents =
+							backlink.borrow().file.content.replace(&old_link, &new_link);
+						new_note_file = backlink.borrow().file.replace_contents(&new_contents);
+					}
+					backlink.borrow_mut().insert_file(new_note_file);
+				}
+				backlink.borrow().save()?;
+			}
+		}
+
+		Ok(())
 	}
 }
 
