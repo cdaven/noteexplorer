@@ -149,7 +149,7 @@ Read more about how NoteExplorer picks the [title](https://github.com/cdaven/not
 
 Some invalid characters will be cleaned from the title before saving as a file, since the operating systems object to them. Read more about this below, in "Filename links".
 
-Asks for confirmation for each rename.
+Asks for confirmation for each rename, unless you specify the flag `-f` *last* in the command.
 
 ## Installation
 

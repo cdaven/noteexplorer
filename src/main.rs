@@ -1,8 +1,8 @@
+use chrono::Utc;
 use clap::{crate_version, App, Arg, SubCommand};
+use debug_print::debug_println;
 use noteexplorer::{run, Config};
 use std::process;
-use chrono::Utc;
-use debug_print::debug_println;
 
 fn main() {
 	let matches = App::new("NoteExplorer")
@@ -79,11 +79,20 @@ fn main() {
 		.subcommand(
 			SubCommand::with_name("update-filenames")
 				.alias("rename")
-				.about("Updates note filenames with ID and title"),
+				.about("Updates note filenames with ID and title")
+				.arg(
+					Arg::with_name("force")
+						.short("f")
+						.help("Always update names, never prompt"),
+				),
 		)
 		.get_matches();
 
 	let command = matches.subcommand_name().unwrap_or_default();
+	let mut force = false;
+	if let Some(c) = matches.subcommand_matches("update-filenames") {
+	 	force = c.is_present("force");
+	}
 
 	let config = Config {
 		extension: matches.value_of("extension").unwrap().to_string(),
@@ -91,6 +100,7 @@ fn main() {
 		backlinks_heading: matches.value_of("backlinks_heading").unwrap().to_string(),
 		path: matches.value_of("PATH").unwrap().to_string(),
 		command: command.to_string(),
+		force
 	};
 
 	let start_time = Utc::now();

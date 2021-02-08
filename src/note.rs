@@ -75,12 +75,21 @@ impl NoteFile {
 	pub fn rename(oldpath: &str, newpath: &str) -> io::Result<()> {
 		fs::rename(oldpath, newpath)
 	}
+
+	pub fn replace_contents(&self, contents: &str) -> NoteFile {
+		NoteFile {
+			path: self.path.clone(),
+			stem: self.stem.clone(),
+			extension: self.extension.clone(),
+			content: contents.to_owned()
+		}
+	}
 }
 
 #[derive(Debug)]
 struct Note {
 	file: NoteFile,
-	title: String, // TODO: Add test case for a file with ID but no title
+	title: String,
 	title_lower: String,
 	id: Option<String>,
 	links: HashSet<WikiLink>,
@@ -89,19 +98,42 @@ struct Note {
 	backlinks_end: Option<usize>,
 	parser: Rc<NoteParser>,
 }
+
 // Use path as unique identifier for notes
 impl PartialEq for Note {
 	fn eq(&self, other: &Self) -> bool {
 		self.file.path == other.file.path
 	}
 }
+
 impl Eq for Note {}
+
 // Use path as unique identifier for notes
 impl Hash for Note {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		self.file.path.hash(state);
 	}
 }
+
+type RcNote = Rc<Note>;
+
+// type NoteRef = Rc<RefCell<Note>>;
+
+// pub struct RefCellNote(RefCell<Note>);
+
+// impl PartialEq for RefCellNote {
+// 	fn eq(&self, other: &Self) -> bool {
+// 		self.0.borrow().file.path == other.0.borrow().file.path
+// 	}
+// }
+
+// impl Eq for RefCellNote {}
+
+// impl Hash for RefCellNote {
+// 	fn hash<H: Hasher>(&self, state: &mut H) {
+// 		self.0.borrow().hash(state);
+// 	}
+// }
 
 impl Note {
 	fn new(file: NoteFile, parser: Rc<NoteParser>) -> Note {
@@ -132,6 +164,10 @@ impl Note {
 			parser,
 			file,
 		}
+	}
+
+	fn replace_file(&mut self, file: NoteFile) {
+		self.file = file
 	}
 
 	fn has_backlinks(&self) -> bool {
@@ -259,6 +295,7 @@ pub enum WikiLink {
 	Id(String),
 	FileName(String),
 }
+
 // Case-insensitive matching for the WikiLink value
 impl PartialEq for WikiLink {
 	fn eq(&self, other: &Self) -> bool {
@@ -294,10 +331,10 @@ impl fmt::Display for WikiLink {
 
 pub struct NoteCollection {
 	/** Lookup for IDs and file names to all notes */
-	notes: HashMap<WikiLink, Rc<Note>>,
+	notes: HashMap<WikiLink, RcNote>,
 	/** List of all notes */
-	notes_iter: Vec<Rc<Note>>,
-	backlinks: HashMap<WikiLink, Vec<Rc<Note>>>,
+	notes_iter: Vec<RcNote>,
+	backlinks: HashMap<WikiLink, Vec<RcNote>>,
 }
 
 impl NoteCollection {
@@ -405,6 +442,15 @@ impl NoteCollection {
 		self.backlinks.len()
 	}
 
+	pub fn into_meta_vec(&self) -> Vec<NoteMeta> {
+		let mut notes = Vec::with_capacity(self.count());
+		let mut f = |note: &Note| {
+			notes.push(note.get_meta());
+		};
+		self.visit_notes(&mut f);
+		notes
+	}
+
 	fn note_has_incoming_links(&self, note: &Note) -> bool {
 		if self
 			.backlinks
@@ -422,16 +468,16 @@ impl NoteCollection {
 		false
 	}
 
-	fn get_incoming_links(&self, note: &Note) -> HashSet<Rc<Note>> {
-		let empty: Vec<Rc<Note>> = Vec::new();
-		let links1: HashSet<&Rc<Note>> = self
+	fn get_incoming_links(&self, note: &Note) -> HashSet<RcNote> {
+		let empty: Vec<RcNote> = Vec::new();
+		let links1: HashSet<&RcNote> = self
 			.backlinks
 			.get(&WikiLink::FileName(note.file.stem.to_string()))
 			.unwrap_or(&empty)
 			.iter()
 			.collect();
 
-		let links2: HashSet<&Rc<Note>> = if let Some(id) = &note.id {
+		let links2: HashSet<&RcNote> = if let Some(id) = &note.id {
 			self.backlinks
 				.get(&WikiLink::Id(id.to_string()))
 				.unwrap_or(&empty)
@@ -525,7 +571,7 @@ impl NoteCollection {
 	pub fn update_backlinks(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::new();
 		let mut f = |note: &Note| {
-			let mut incoming_links: Vec<Rc<Note>> =
+			let mut incoming_links: Vec<RcNote> =
 				self.get_incoming_links(note).into_iter().collect();
 
 			// First sort by filename to get a stable sort when titles are identical
@@ -573,14 +619,34 @@ impl NoteCollection {
 				NoteFile::clean_filename(&note.title)
 			};
 			if note.file.stem.to_lowercase() != new_filename.to_lowercase() {
-				fs.push((
-					note.get_meta(),
-					format!("{}.{}", new_filename, &note.file.extension),
-				));
+				fs.push((note.get_meta(), new_filename));
 			}
 		};
 		self.visit_notes(&mut f);
 		fs
+	}
+
+	pub fn rename_note(&self, note: &NoteMeta, new_stem: &str) -> io::Result<()> {
+		let original_filename = format!("{}.{}", note.stem, note.extension);
+		let folder = &note.path[..(note.path.len() - original_filename.len())];
+		let new_filename = format!("{}.{}", new_stem, note.extension);
+		let new_path = folder.to_owned() + &new_filename;
+		NoteFile::rename(&note.path, &new_path)?;
+
+		self.update_filename_backlinks_to(&note.stem, &new_stem);
+
+		Ok(())
+	}
+
+	fn update_filename_backlinks_to(&self, old_file_stem: &str, new_file_stem: &str) {
+		let old_link = Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem);
+		let new_link = Note::get_wikilink(&None, &EMPTY_STRING, &new_file_stem);
+
+		for backlink in &self.backlinks[&WikiLink::FileName(old_file_stem.to_owned())] {
+			backlink.replace_file(backlink.file.replace_contents(&backlink.file.content.replace(&old_link, &new_link)));
+
+			// Om vi uppdaterar länkarna mer än en gång i samma fil, kommer vi skriva över tidigare uppdateringar
+		}
 	}
 }
 
