@@ -127,9 +127,10 @@ impl NoteParser {
 						titles.push(
 							// Remove {.attributes} and trailing spaces
 							// See https://pandoc.org/MANUAL.html#pandocs-markdown
-							NoteParser::strip_heading_attributes(&ln[2..])
-								.trim_end()
-								.to_owned(),
+							escape_markdown(
+								NoteParser::strip_heading_attributes(&ln[2..]).trim_end(),
+							)
+							.to_string(),
 						);
 						if let Some(capture) = self.id_expr.captures(ln) {
 							ids.push(capture[1].to_owned());
@@ -483,13 +484,11 @@ mod tests {
 
 	#[test]
 	fn oneliner_parser() {
-		let text = r"# Just a heading";
+		let text = r"# Just a heading \#";
 		let parser = NoteParser::new(r"\d{14}", "## Links to this note").unwrap();
 		let data = parser.parse(&text);
 
-		assert!(data
-			.titles
-			.contains(&"Just a heading".to_owned()));
+		assert!(data.titles.contains(&"Just a heading #".to_owned()));
 		assert_eq!(data.titles.len(), 1);
 		assert_eq!(data.links.len(), 0);
 		assert_eq!(data.ids.len(), 0);
@@ -500,9 +499,6 @@ mod tests {
 
 	#[test]
 	fn escaped_characters() {
-
-		// När behövs det stöd för detta egentligen?
-
 		assert_eq!(
 			mdparse::escape_markdown(r"C\#\! \{ 0 \+\- 1 \}"),
 			"C#! { 0 +- 1 }"
