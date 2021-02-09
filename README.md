@@ -143,9 +143,9 @@ Alias: `rename`
 
 Updates filenames of notes, based on the template `(<id>) <title>.<extension>`. So, if the ID is 20210119212027 and the title in the note is "There and back again", the filename will become "20210119212027 There and back again.md". (The extension is set with the `--extension` option.)
 
-If there is no ID, the filename will be just the title. If there is not title, the filename will be just the ID.
+If there is no ID, the filename will be just the title. If there is not title, the filename will be just the ID. Read more about how NoteExplorer picks the [title](https://github.com/cdaven/noteexplorer/wiki/How-NoteExplorer-picks-the-title-of-a-note) and ID of a note.
 
-Read more about how NoteExplorer picks the [title](https://github.com/cdaven/noteexplorer/wiki/How-NoteExplorer-picks-the-title-of-a-note) and ID of a note.
+Filename backlinks to renamed files are updated to the new filename, so that the links are not broken.
 
 Some invalid characters will be cleaned from the title before saving as a file, since the operating systems object to them. Read more about this below, in "Filename links".
 
