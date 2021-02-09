@@ -4,7 +4,7 @@ mod note;
 
 use chrono::Utc;
 use debug_print::debug_println;
-use note::{NoteCollection, NoteFile, NoteMeta};
+use note::{NoteCollection, NoteMeta};
 use std::error::Error;
 use std::fs;
 
@@ -227,11 +227,9 @@ mod tests {
 				}
 				"Rename Then 2" => {
 					assert_eq!(note.stem, "Rename Then 2");
-					// TODO: Assert note.links
 				}
 				"Rename That 3" => {
 					assert_eq!(note.stem, "Rename That 3");
-					// TODO: Assert note.links
 				}
 				_ => {
 					panic!("Unrecognized note title");

@@ -803,8 +803,6 @@ mod tests {
 
 		// All links in this file is in the backlinks section
 		assert_eq!(note.links.len(), 0);
-
-		// TODO: Add test, or are we done?
 	}
 
 	#[test]
@@ -926,5 +924,18 @@ mod tests {
 			Ok(_) => panic!("Shouldn't be able to read Win-1252 file"),
 			Err(_) => (),
 		};
+	}
+
+	#[test]
+	fn file_without_title() {
+		let parser = Rc::new(get_default_parser());
+		let note = Note::new(
+			NoteFile::new(&path::PathBuf::from(r"testdata/20201010101010.md")).unwrap(),
+			Rc::clone(&parser),
+		);
+
+		assert_eq!(note.title, "".to_owned());
+		assert_eq!(note.id, Some("20201010101010".to_owned()));
+		assert_eq!(note.file.stem, "20201010101010".to_owned());
 	}
 }
