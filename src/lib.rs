@@ -139,6 +139,7 @@ fn update_backlinks(note_collection: &NoteCollection) {
 }
 
 fn update_filenames(note_collection: &NoteCollection, force: bool) -> Result<(), Box<dyn Error>> {
+	let mut affected_backlinks = false;
 	for (note, new_stem) in note_collection.get_mismatched_filenames() {
 		let original_filename = format!("{}.{}", note.stem, note.extension);
 		let new_filename = format!("{}.{}", new_stem, note.extension);
@@ -153,12 +154,25 @@ fn update_filenames(note_collection: &NoteCollection, force: bool) -> Result<(),
 
 		if reply == "y" || reply.is_empty() {
 			if note.path.ends_with(&original_filename) {
-				note_collection.rename_note(&note, &new_stem)?;
+				// If note has links to other notes and NOT an ID, this means that there
+				// are backlinks in other notes that are now linking to the old filename
+				affected_backlinks = affected_backlinks || (note.has_links && note.id.is_none());
+
+				let updated_notes = note_collection.rename_note(&note, &new_stem)?;
+				if updated_notes.len() > 0 {
+					for n in updated_notes {
+						println!("- Updated link from {}", n.get_wikilink_to());
+					}
+				}
 			} else {
 				// TODO: Return as Err
 				eprintln!("Error: probably a bug in how the file name path is determined");
 			}
 		}
+	}
+
+	if affected_backlinks {
+		println!("You should probably update-backlinks now");
 	}
 
 	Ok(())
@@ -168,9 +182,9 @@ fn update_filenames(note_collection: &NoteCollection, force: bool) -> Result<(),
 mod tests {
 	use crate::*;
 	use std::env::temp_dir;
-	use std::{fs, io};
 	use std::io::Write;
 	use std::path::PathBuf;
+	use std::{fs, io};
 
 	/// Create directory, removing it first if it exists,
 	/// together with all files and subdirectories. Careful!
@@ -197,9 +211,15 @@ mod tests {
 		dir.push("noteexplorer-test-rename");
 		create_dir(&dir).unwrap();
 
-		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-1.md", "# Rename This 1\r\nHere is a link to another file: [[noteexplorer-test-rename-2]]. And some text after").unwrap();
-		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-2.md", "# Rename Then 2\r\nHere is a link to another file: [[noteexplorer-test-rename-1]]. And some text after").unwrap();
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-1.md", "# Rename This 1\r\nHere is a link to another file: [[Noteexplorer-test-rename-2]]. And some text after. [[Backlink-File]]").unwrap();
+		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-2.md", "# Rename Then 2\r\nHere is a link to another file: [[noteexplorer-TEST-rename-1]]. And some text after. [[Backlink-File]]").unwrap();
 		write_to_tmp_file(&mut dir.clone(), "noteexplorer-test-rename-3.md", "# Rename That 3\r\nHere are the links: [[noteexplorer-test-rename-1]] and [[noteexplorer-test-rename-2]]. And some text after").unwrap();
+		write_to_tmp_file(
+			&mut dir.clone(),
+			"backlink-file.md",
+			"## Backlinks\n\n- [[noteexplorer-TEST-rename-1]]\n\n- [[noteexplorer-TEST-rename-2]]",
+		)
+		.unwrap();
 
 		let notes_before = NoteCollection::collect_files(
 			&dir,
@@ -208,7 +228,7 @@ mod tests {
 		);
 
 		// No extra notes should be found
-		assert_eq!(notes_before.count(), 3);
+		assert_eq!(notes_before.count(), 4);
 		// No broken links in the test data
 		assert_eq!(notes_before.get_broken_links().len(), 0);
 
@@ -231,16 +251,19 @@ mod tests {
 				"Rename That 3" => {
 					assert_eq!(note.stem, "Rename That 3");
 				}
+				"backlink-file" => {
+					assert_eq!(note.stem, "backlink-file");
+				}
 				_ => {
 					panic!("Unrecognized note title");
 				}
 			};
 		}
 
-		assert_eq!(notes_after.count(), 3);
+		assert_eq!(notes_after.count(), 4);
 		assert_eq!(notes_after.get_broken_links().len(), 0);
 		assert_eq!(notes_after.get_isolated().len(), 0);
 		assert_eq!(notes_after.get_sources().len(), 1);
-		assert_eq!(notes_after.get_sinks().len(), 0);
+		assert_eq!(notes_after.get_sinks().len(), 1);
 	}
 }

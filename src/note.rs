@@ -4,7 +4,9 @@ use ansi_term::Colour;
 use chrono::Utc;
 use debug_print::debug_println;
 use lazy_static::*;
+use regex::Error;
 use regex::Regex;
+use std::borrow::Cow;
 use std::cell::{Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -162,8 +164,8 @@ impl Note {
 		}
 	}
 
-	/// Insert/replace NoteFile object in mutable copy
-	fn insert_file(&mut self, file: NoteFile) {
+	/// Replace NoteFile object in mutable copy
+	fn set_file(&mut self, file: NoteFile) {
 		self.file = file
 	}
 
@@ -229,13 +231,14 @@ impl Note {
 	}
 
 	/// Return a copy of the note's meta data
-	fn get_meta(&self) -> NoteMeta {
+	fn into_meta(&self) -> NoteMeta {
 		NoteMeta {
 			path: self.file.path.clone(),
 			stem: self.file.stem.clone(),
 			extension: self.file.extension.clone(),
 			title: self.title.clone(),
 			id: self.id.clone(),
+			has_links: self.links.len() > 0,
 		}
 	}
 
@@ -287,6 +290,7 @@ pub struct NoteMeta {
 	pub extension: String,
 	pub title: String,
 	pub id: Option<String>,
+	pub has_links: bool,
 }
 
 impl NoteMeta {
@@ -439,7 +443,7 @@ impl NoteCollection {
 	pub fn into_meta_vec(&self) -> Vec<NoteMeta> {
 		let mut notes = Vec::with_capacity(self.count());
 		for note in &self.get_sorted_notes() {
-			notes.push(note.get_meta());
+			notes.push(note.into_meta());
 		}
 		notes
 	}
@@ -490,7 +494,7 @@ impl NoteCollection {
 		let mut sources = Vec::new();
 		for note in &self.get_sorted_notes() {
 			if note.has_outgoing_links() && !self.note_has_incoming_links(note) {
-				sources.push(note.get_meta());
+				sources.push(note.into_meta());
 			}
 		}
 		sources
@@ -501,7 +505,7 @@ impl NoteCollection {
 		let mut sinks = Vec::new();
 		for note in &self.get_sorted_notes() {
 			if !note.has_outgoing_links() && self.note_has_incoming_links(note) {
-				sinks.push(note.get_meta());
+				sinks.push(note.into_meta());
 			}
 		}
 		sinks
@@ -512,7 +516,7 @@ impl NoteCollection {
 		let mut isolated = Vec::new();
 		for note in &self.get_sorted_notes() {
 			if !note.has_outgoing_links() && !self.note_has_incoming_links(note) {
-				isolated.push(note.get_meta());
+				isolated.push(note.into_meta());
 			}
 		}
 		isolated
@@ -525,7 +529,7 @@ impl NoteCollection {
 		for broken in linked.difference(&existing) {
 			let linkers: Vec<NoteMeta> = self.backlinks[broken]
 				.iter()
-				.map(|note| note.borrow().get_meta())
+				.map(|note| note.borrow().into_meta())
 				.collect();
 			notes.push((*broken, linkers));
 		}
@@ -536,7 +540,7 @@ impl NoteCollection {
 		let mut tasks = Vec::new();
 		for note in &self.get_sorted_notes() {
 			if !note.tasks.is_empty() {
-				tasks.push((note.get_meta(), note.tasks.clone()));
+				tasks.push((note.into_meta(), note.tasks.clone()));
 			}
 		}
 		tasks
@@ -551,7 +555,7 @@ impl NoteCollection {
 				{
 					eprintln!("Error while saving note file {}: {}", note.file.path, e);
 				} else {
-					notes.push(note.get_meta());
+					notes.push(note.into_meta());
 				}
 			}
 		}
@@ -597,7 +601,7 @@ impl NoteCollection {
 				if let Err(e) = NoteFile::save(&note.file.path, &new_contents) {
 					eprintln!("Error while saving note file {}: {}", note.file.path, e);
 				} else {
-					notes.push(note.get_meta());
+					notes.push(note.into_meta());
 				}
 			}
 		}
@@ -613,51 +617,69 @@ impl NoteCollection {
 				NoteFile::clean_filename(&note.title)
 			};
 			if note.file.stem.to_lowercase() != new_filename.to_lowercase() {
-				fs.push((note.get_meta(), new_filename));
+				fs.push((note.into_meta(), new_filename));
 			}
 		}
 		fs
 	}
 
-	pub fn rename_note(&self, note_meta: &NoteMeta, new_stem: &str) -> io::Result<()> {
+	pub fn rename_note(&self, note_meta: &NoteMeta, new_stem: &str) -> io::Result<Vec<NoteMeta>> {
 		let note = &self.notes[&WikiLink::FileName(note_meta.stem.to_string())];
 
 		// Rename note file and replace NoteFile object in Note
 		let new_note_file = note.borrow().file.rename(&new_stem)?;
-		note.borrow_mut().insert_file(new_note_file);
+		note.borrow_mut().set_file(new_note_file);
 
-		self.update_filename_backlinks_to(&note_meta.stem, &new_stem)?;
-
-		Ok(())
+		Ok(self.update_filename_backlinks_to(&note_meta.stem, &new_stem)?)
 	}
 
 	fn update_filename_backlinks_to(
 		&self,
 		old_file_stem: &str,
 		new_file_stem: &str,
-	) -> io::Result<()> {
+	) -> io::Result<Vec<NoteMeta>> {
+		let mut updated_notes = Vec::new();
 		let old_filename_link = WikiLink::FileName(old_file_stem.to_owned());
-
 		if self.backlinks.contains_key(&old_filename_link) {
-			let old_link = Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem);
+			// Use Regex to make case-insensitive search and replace
+			let search =
+				literal_to_ci_regex(&Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem))
+					.unwrap();
 			let new_link = Note::get_wikilink(&None, &EMPTY_STRING, &new_file_stem);
 
 			for backlink in self.backlinks[&old_filename_link].iter() {
 				{
-					let new_note_file: NoteFile;
-					{
-						let new_contents =
-							backlink.borrow().file.content.replace(&old_link, &new_link);
-						new_note_file = backlink.borrow().file.replace_contents(&new_contents);
+					let new_contents = &regex_literal_search_replace(
+						&backlink.borrow().file.content,
+						&search,
+						&new_link,
+					)
+					.to_string();
+
+					if &backlink.borrow().file.content != new_contents {
+						let new_note_file = backlink.borrow().file.replace_contents(new_contents);
+						backlink.borrow_mut().set_file(new_note_file);
+						updated_notes.push(backlink.borrow().into_meta());
 					}
-					backlink.borrow_mut().insert_file(new_note_file);
 				}
 				backlink.borrow().save()?;
 			}
 		}
 
-		Ok(())
+		Ok(updated_notes)
 	}
+}
+
+fn literal_to_ci_regex(search: &str) -> Result<Regex, Error> {
+	Regex::new(&format!("(?i){}", &regex::escape(&search)))
+}
+
+fn regex_literal_search_replace<'a>(
+	text: &'a str,
+	search: &Regex,
+	replace: &'a str,
+) -> Cow<'a, str> {
+	search.replace_all(&text, |_: &regex::Captures| &replace)
 }
 
 #[cfg(test)]
