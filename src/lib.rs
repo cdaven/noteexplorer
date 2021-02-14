@@ -115,12 +115,15 @@ fn print_note_wikilink_list(notes: &[NoteMeta]) {
 
 fn print_broken_links(note_collection: &NoteCollection) {
 	let broken_links = note_collection.get_broken_links();
+	if broken_links.len() == 0 {
+		println!("No broken links found");
+	} else {
+		println!("# Broken links\n");
 
-	println!("# Broken links\n");
-
-	for (link, notes) in broken_links {
-		let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();
-		println!("- \"{}\" links to unknown {}", linkers.join(" and "), link);
+		for (link, notes) in broken_links {
+			let linkers: Vec<String> = notes.iter().map(|n| n.get_wikilink_to()).collect();
+			println!("- \"{}\" links to unknown {}", linkers.join(" and "), link);
+		}
 	}
 }
 
