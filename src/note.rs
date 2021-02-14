@@ -310,7 +310,7 @@ impl PartialEq for WikiLink {
 	fn eq(&self, other: &Self) -> bool {
 		use WikiLink::*;
 		match (self, other) {
-			(Id(a), Id(b)) => a.to_lowercase() == b.to_lowercase(),
+			(Id(a), Id(b)) => a == b,
 			(FileName(a), FileName(b)) => a.to_lowercase() == b.to_lowercase(),
 			_ => false,
 		}
@@ -322,7 +322,7 @@ impl Hash for WikiLink {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		use WikiLink::*;
 		match self {
-			Id(link) => link.to_lowercase().hash(state),
+			Id(link) => link.hash(state),
 			FileName(link) => link.to_lowercase().hash(state),
 		}
 	}

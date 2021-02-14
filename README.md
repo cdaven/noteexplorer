@@ -179,6 +179,8 @@ The idea behind the Zettelkasten ID is to allow the filename to change without h
 
 Of course, NoteExplorer must know the format of your IDs to be able to detect them. The default value is 14 digits (in regular expressions speak, this is "\d{14}"), which is a timestamp like 20210119212027. You can specify another format with the `--id-format` option.
 
+IDs are assumed to be numerical, which also means that they are compared with case sensitivity, which is faster and easier.
+
 ID links are simple enough: `[[20210119212027]]`. Just the ID, no filename or title.
 
 ### Specifying the ID of a note
