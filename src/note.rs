@@ -25,6 +25,11 @@ lazy_static! {
 	static ref DOUBLE_SPACES: Regex = Regex::new(r" +").unwrap();
 }
 
+macro_rules! wikilink {
+    ($i:expr) => { format!("[[{}]]", $i); }
+}
+
+
 #[derive(Debug)]
 pub struct NoteFile {
 	/// Full path to file
@@ -639,15 +644,15 @@ impl NoteCollection {
 		new_file_stem: &str,
 	) -> io::Result<Vec<NoteMeta>> {
 		let mut updated_notes = Vec::new();
-		let old_filename_link = WikiLink::FileName(old_file_stem.to_owned());
-		if self.backlinks.contains_key(&old_filename_link) {
+		let old_filename_id = WikiLink::FileName(old_file_stem.to_owned());
+		if self.backlinks.contains_key(&old_filename_id) {
 			// Use Regex to make case-insensitive search and replace
 			let search =
 				literal_to_ci_regex(&Note::get_wikilink(&None, &EMPTY_STRING, &old_file_stem))
 					.unwrap();
 			let new_link = Note::get_wikilink(&None, &EMPTY_STRING, &new_file_stem);
 
-			for backlink in self.backlinks[&old_filename_link].iter() {
+			for backlink in self.backlinks[&old_filename_id].iter() {
 				{
 					let new_contents = &regex_literal_search_replace(
 						&backlink.borrow().file.content,
