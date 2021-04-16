@@ -255,7 +255,7 @@ impl Note {
 		// Link either to ID or filename
 		let link_target = if let Some(i) = id { i } else { file_stem };
 
-		let link_desc = if title == link_target {
+		let link_desc = if title.to_lowercase() == link_target.to_lowercase() {
 			// No need for a link description that matches the link target
 			// (E.g. "[[Filename link]] Filename link")
 			&EMPTY_STRING
