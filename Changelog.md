@@ -1,6 +1,6 @@
 # Changelog
 
-## Release 0.3.0 ?
+## Release 0.3.0 - July 13, 2021
 
 - Drop support for labels and sections in links (`[[label|filename#section]]`)
 - Allow all characters in links, to make all invalid links findable with `list-broken-links`
@@ -8,7 +8,7 @@
 - Assume numerical IDs for faster searching
 - Match titles and filenames without case sensitivity
 
-## Release 0.2.1. - January 31, 2021
+## Release 0.2.1 - January 31, 2021
 
 - Fix bug where parser missed links in nested ordered lists
 
