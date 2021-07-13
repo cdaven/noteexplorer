@@ -1,11 +1,12 @@
 # Changelog
 
-
 ## Release 0.3.0 ?
 
 - Drop support for labels and sections in links (`[[label|filename#section]]`)
 - Allow all characters in links, to make all invalid links findable with `list-broken-links`
 - Added missing pipe character (`|`) to list of illegal filename characters
+- Assume numerical IDs for faster searching
+- Match titles and filenames without case sensitivity
 
 ## Release 0.2.1. - January 31, 2021
 
