@@ -733,6 +733,18 @@ mod tests {
 	}
 
 	#[test]
+	fn yaml3_title_parser() {
+		let parser = Rc::new(get_default_parser());
+		let note = Note::new(
+			NoteFile::new(&path::PathBuf::from(r"testdata/yaml3.md")).unwrap(),
+			Rc::clone(&parser),
+		);
+
+		assert_eq!(note.title, "Das Title");
+		assert!(note.id.is_none());
+	}
+
+	#[test]
 	fn empty_file_parser() {
 		let parser = Rc::new(get_default_parser());
 		let note = Note::new(
