@@ -68,6 +68,16 @@ fn main() {
 				.about("Prints a list of tasks"),
 		)
 		.subcommand(
+			SubCommand::with_name("list-with-tags")
+				.aliases(&["tags", "keywords"])
+				.about("Prints a list of notes with given tags")
+				.arg(
+					Arg::with_name("name")
+						.short("n")
+						.help("Name of tag to search for"),
+				),
+		)
+		.subcommand(
 			SubCommand::with_name("update-backlinks")
 				.alias("backlinks")
 				.about("Updates backlink sections in all notes"),

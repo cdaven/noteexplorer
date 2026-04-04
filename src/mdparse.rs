@@ -40,13 +40,13 @@ pub struct NoteData {
 	pub ids: Vec<String>,
 	pub links: Vec<WikiLink>,
 	pub tasks: Vec<String>,
+	pub tags: Vec<String>,
 	pub backlinks_start: Option<usize>,
 	pub backlinks_end: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct NoteParser {
-	id_pattern: String,
 	id_expr: Regex,
 	pub backlinks_heading: String,
 }
@@ -63,7 +63,6 @@ impl NoteParser {
 		let backlinks_heading = backlinks_heading.to_string();
 
 		Ok(NoteParser {
-			id_pattern: id_pattern.to_string(),
 			id_expr,
 			backlinks_heading,
 		})
@@ -74,6 +73,7 @@ impl NoteParser {
 		let mut ids = Vec::new();
 		let mut links = Vec::new();
 		let mut tasks = Vec::new();
+		let mut tags = Vec::new();
 		let mut backlinks_start: Option<usize> = None;
 		let mut backlinks_end: Option<usize> = None;
 
@@ -118,6 +118,12 @@ impl NoteParser {
 							if let Some(wl) = self.get_wiki_links(ln) {
 								links.extend(wl);
 							}
+						}
+						if ln.starts_with("tags: ") {
+							tags.extend(self.get_yaml_list(&ln[6..]));
+						}
+						if ln.starts_with("keywords: ") {
+							tags.extend(self.get_yaml_list(&ln[10..]));
 						}
 					}
 				}
@@ -192,6 +198,7 @@ impl NoteParser {
 			ids,
 			links,
 			tasks,
+			tags,
 			backlinks_start,
 			backlinks_end,
 		}
@@ -238,6 +245,59 @@ impl NoteParser {
 			}
 		}
 		Some(links)
+	}
+
+	pub fn get_yaml_list(&self, text: &str) -> Vec<String> {
+		let mut items = Vec::new();
+		let mut current_item = String::from("");
+		let mut state = "initial";
+		for char in text.chars() {
+			match state {
+				"initial" => {
+					if char == ' ' || char == '[' {
+						continue;
+					}
+					else {
+						current_item.push(char);
+						state = "item";
+					}
+				}
+				"item" => {
+					if char == ',' {
+						// End tag and expect another
+						items.push(current_item.trim_end().to_owned());
+						current_item = String::from("");
+						state = "afterItem";
+					}
+					else if char == ']' {
+						// End tag and expect no more
+						items.push(current_item.trim_end().to_owned());
+						current_item = String::from("");
+						break;
+					}
+					else {
+						current_item.push(char);
+					}
+				}
+				"afterItem" => {
+					if char == ' ' {
+						continue;
+					}
+					else {
+						current_item.push(char);
+						state = "item";
+					}
+				}
+				_ => {
+					// Cannot occur
+				}
+			}
+		}
+		// Push last tag, since we don't know when we read the last character
+		if current_item.len() > 0 {
+			items.push(current_item.trim_end().to_owned());
+		}
+		items
 	}
 }
 
@@ -408,6 +468,8 @@ mod tests {
 		.unwrap();
 		let data = parser.parse(&text);
 
+		assert_eq!(data.tags.len(), 0);
+
 		let expected_ids = [
 			"123123123123",
 			"1111111111110",
@@ -480,6 +542,50 @@ mod tests {
 		}
 
 		assert_eq!(data.links.len(), expected_links.len());
+	}
+
+	#[test]
+	fn parse_tags_1() {
+		let text = fs::read_to_string(r"testdata/yaml-tags-1.md").unwrap();
+		let parser = NoteParser::new(
+			r"\d{12,14}",
+			"",
+		)
+		.unwrap();
+		let data = parser.parse(&text);
+
+		assert_eq!(data.tags.len(), 1);
+		assert!(data.tags.contains(&"one tag".to_owned()));
+	}
+
+	#[test]
+	fn parse_tags_2() {
+		let text = fs::read_to_string(r"testdata/yaml-tags-2.md").unwrap();
+		let parser = NoteParser::new(
+			r"\d{12,14}",
+			"",
+		)
+		.unwrap();
+		let data = parser.parse(&text);
+
+		assert_eq!(data.tags.len(), 2);
+		assert!(data.tags.contains(&"tag 1".to_owned()));
+		assert!(data.tags.contains(&"123".to_owned()));
+	}
+
+	#[test]
+	fn parse_tags_3() {
+		let text = fs::read_to_string(r"testdata/yaml-tags-3.md").unwrap();
+		let parser = NoteParser::new(
+			r"\d{12,14}",
+			"",
+		)
+		.unwrap();
+		let data = parser.parse(&text);
+
+		assert_eq!(data.tags.len(), 2);
+		assert!(data.tags.contains(&"tag with spaces".to_owned()));
+		assert!(data.tags.contains(&"nospace".to_owned()));
 	}
 
 	#[test]

@@ -1,5 +1,9 @@
 # Changelog
 
+## Release 0.3.1 - May 30, 2023
+
+- Support for finding notes with tags: `list-with-tags -n mytag`
+
 ## Release 0.3.0 - July 13, 2021
 
 - Drop support for labels and sections in links (`[[label|filename#section]]`)
